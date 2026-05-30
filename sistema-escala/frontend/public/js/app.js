@@ -1,0 +1,1413 @@
+// ==================== API ====================
+const API = '/api';
+
+function getToken() { return localStorage.getItem('token'); }
+function setToken(t) { localStorage.setItem('token', t); }
+function getUser() { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } }
+function setUser(u) { localStorage.setItem('user', JSON.stringify(u)); }
+function clearAuth() { localStorage.removeItem('token'); localStorage.removeItem('user'); }
+
+async function apiFetch(path, options = {}) {
+  const token = getToken();
+  const headers = { ...options.headers };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (!options.body || options.body instanceof FormData) {
+    // don't set content-type for FormData
+  } else {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(`${API}${path}`, { ...options, headers });
+  if (res.status === 401) {
+    clearAuth();
+    render();
+    return null;
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function apiGet(path) { return apiFetch(path); }
+function apiPost(path, body) { return apiFetch(path, { method: 'POST', body: JSON.stringify(body) }); }
+function apiPut(path, body) { return apiFetch(path, { method: 'PUT', body: JSON.stringify(body) }); }
+function apiDelete(path) { return apiFetch(path, { method: 'DELETE' }); }
+
+// ==================== STATE ====================
+let DATA = { cargas: [], entregas: [], reversas: [], devolucoes: [], veiculos: [], motoristas: [], ajudantes: [], funcionarios: [] };
+let filters = {
+  cargaStatus: '', cargaInicio: '', cargaFim: '',
+  equipeInicio: '', equipeFim: '', equipeStatus: '', equipePlaca: '',
+  entInicio: '', entFim: '', entCarga: '', entPlaca: '',
+  revInicio: '', revFim: '',
+  devInicio: '', devFim: ''
+};
+let activeTab = 0;
+
+function today() { return new Date().toISOString().split('T')[0]; }
+function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]; }
+function fmtDate(iso) { return iso ? iso.slice(0, 10) : '—'; }
+
+// ==================== AUTH ====================
+async function login(email, senha) {
+  const data = await apiPost('/auth/login', { email, senha });
+  if (data && data.token) {
+    setToken(data.token);
+    setUser(data.user);
+    return data;
+  }
+  return null;
+}
+
+async function installSaaS(data) {
+  return await apiPost('/install', data);
+}
+
+// ==================== RENDER ENGINE ====================
+function render() {
+  const token = getToken();
+  const user = getUser();
+  const root = document.getElementById('root');
+
+  if (!token || !user) {
+    renderLoginPage(root);
+    return;
+  }
+
+  if (user.funcao === 'saas_owner') {
+    renderSaaSPage(root);
+  } else {
+    renderTransportadoraPage(root);
+  }
+}
+
+// ==================== LOGIN PAGE ====================
+function renderLoginPage(root) {
+  root.innerHTML = `
+    <div class="page-center">
+      <div class="page-card">
+        <div class="logo">🏠</div>
+        <h1>Gestão de Escala</h1>
+        <p class="subtitle">Via Varejo · Equipe de Entregas</p>
+        <div id="login-error" class="error"></div>
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="seu@email.com" autocomplete="email">
+        <label>Senha</label>
+        <input type="password" id="login-senha" placeholder="Sua senha" autocomplete="current-password">
+        <button class="btn btn-primary" onclick="handleLogin()">Entrar</button>
+        <div class="link" id="install-link-area"></div>
+      </div>
+    </div>
+  `;
+
+  // Check if installed
+  apiGet('/status').then(s => {
+    if (s && !s.instalado) {
+      document.getElementById('install-link-area').innerHTML =
+        '<a onclick="checkInstall()">Primeiro acesso? Instalar sistema</a>';
+    }
+  });
+
+  // Enter key
+  document.getElementById('login-senha').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleLogin();
+  });
+}
+
+window.handleLogin = async function() {
+  const email = document.getElementById('login-email').value;
+  const senha = document.getElementById('login-senha').value;
+  const errEl = document.getElementById('login-error');
+  if (!email || !senha) { errEl.textContent = 'Preencha email e senha'; return; }
+  errEl.textContent = '';
+  const result = await login(email, senha);
+  if (result) {
+    const user = result.user;
+    if (result.primeiro_acesso) {
+      renderPrimeiroAcesso();
+    } else {
+      render();
+    }
+  } else {
+    errEl.textContent = 'Email ou senha inválidos';
+  }
+};
+
+window.checkInstall = function() {
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="page-center">
+      <div class="page-card">
+        <div class="logo">🏠</div>
+        <h1>Instalação do Sistema</h1>
+        <p class="subtitle">Cadastro do proprietário SaaS</p>
+        <div id="install-error" class="error"></div>
+        <label>Nome da Empresa *</label>
+        <input type="text" id="inst-empresa" placeholder="Minha Transportadora SaaS">
+        <label>CNPJ *</label>
+        <input type="text" id="inst-cnpj" placeholder="00.000.000/0001-00">
+        <label>Email do Proprietário *</label>
+        <input type="email" id="inst-email" placeholder="admin@meusaas.com">
+        <label>Telefone</label>
+        <input type="text" id="inst-telefone" placeholder="(11) 99999-9999">
+        <label>Email para Recuperação de Senha *</label>
+        <input type="email" id="inst-email-rec" placeholder="recuperacao@meusaas.com">
+        <label>Senha Mestre *</label>
+        <input type="password" id="inst-senha" placeholder="Mínimo 6 caracteres">
+        <button class="btn btn-primary" onclick="handleInstall()">Instalar</button>
+        <div class="link"><a onclick="render()">Voltar ao login</a></div>
+      </div>
+    </div>
+  `;
+};
+
+window.handleInstall = async function() {
+  const data = {
+    empresa: document.getElementById('inst-empresa').value,
+    cnpj: document.getElementById('inst-cnpj').value,
+    email: document.getElementById('inst-email').value,
+    telefone: document.getElementById('inst-telefone').value,
+    email_recuperacao: document.getElementById('inst-email-rec').value,
+    senha: document.getElementById('inst-senha').value
+  };
+  const errEl = document.getElementById('install-error');
+  if (!data.empresa || !data.cnpj || !data.email || !data.email_recuperacao || !data.senha) {
+    errEl.textContent = 'Preencha todos os campos obrigatórios';
+    return;
+  }
+  if (data.senha.length < 6) { errEl.textContent = 'Senha deve ter no mínimo 6 caracteres'; return; }
+  errEl.textContent = '';
+  const result = await installSaaS(data);
+  if (result && result.token) {
+    setToken(result.token);
+    setUser({ email: data.email, funcao: 'saas_owner', nome: data.empresa });
+    render();
+  } else {
+    errEl.textContent = (result && result.error) || 'Erro ao instalar';
+  }
+};
+
+// ==================== PRIMEIRO ACESSO ====================
+window.renderPrimeiroAcesso = function() {
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="page-center">
+      <div class="page-card">
+        <div class="logo">🔑</div>
+        <h1>Primeiro Acesso</h1>
+        <p class="subtitle">Cadastre sua nova senha</p>
+        <div id="pa-error" class="error"></div>
+        <label>Nova Senha *</label>
+        <input type="password" id="pa-senha" placeholder="Mínimo 6 caracteres">
+        <label>Confirmar Senha *</label>
+        <input type="password" id="pa-confirmar" placeholder="Repita a senha">
+        <button class="btn btn-primary" onclick="handlePrimeiroAcesso()">Salvar</button>
+      </div>
+    </div>
+  `;
+};
+
+window.handlePrimeiroAcesso = async function() {
+  const senha = document.getElementById('pa-senha').value;
+  const confirmar = document.getElementById('pa-confirmar').value;
+  const errEl = document.getElementById('pa-error');
+  if (senha.length < 6) { errEl.textContent = 'Mínimo 6 caracteres'; return; }
+  if (senha !== confirmar) { errEl.textContent = 'Senhas não conferem'; return; }
+  const result = await apiPost('/auth/primeiro-acesso', { senha });
+  if (result && result.message) {
+    const user = getUser();
+    user.primeiro_acesso = false;
+    setUser(user);
+    render();
+  } else {
+    errEl.textContent = 'Erro ao alterar senha';
+  }
+};
+
+// ==================== SAAS OWNER PAGE ====================
+function renderSaaSPage(root) {
+  root.innerHTML = `
+    <div class="app">
+      <div class="header">
+        <div class="header-logo">🏠</div>
+        <div class="header-info">
+          <div class="header-title">Painel SaaS — Gestão de Escala</div>
+          <div class="header-sub">${getUser().nome}</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn-refresh" onclick="carregarTransportadoras()">🔄 Atualizar</button>
+          <button class="btn-refresh" onclick="handleLogout()">🚪 Sair</button>
+        </div>
+      </div>
+      <div class="content" id="saas-content">
+        <div class="empty-state">🔄 Carregando...</div>
+      </div>
+    </div>
+  `;
+  carregarTransportadoras();
+}
+
+async function carregarTransportadoras() {
+  const data = await apiGet('/admin/transportadoras');
+  const el = document.getElementById('saas-content');
+  if (!data) { el.innerHTML = '<div class="empty-state">Erro ao carregar</div>'; return; }
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🏢 Transportadoras Cadastradas</div>
+        <button class="btn btn-success" onclick="showNovaTransportadora()">+ Nova Transportadora</button>
+      </div>
+      ${data.length === 0 ? '<div class="empty-state">Nenhuma transportadora cadastrada</div>' : `
+      <div class="table-container"><table>
+        <thead><tr><th>Código</th><th>Nome</th><th>CNPJ</th><th>Email</th><th>Cadastro</th><th>Ações</th></tr></thead>
+        <tbody>${data.map(t => `
+          <tr>
+            <td><strong>${t.cod_transp}</strong></td>
+            <td>${t.nome}</td>
+            <td>${t.cnpj}</td>
+            <td>${t.email}</td>
+            <td>${t.created_at}</td>
+            <td>
+              <button class="btn btn-sm btn-primary" onclick="verTransportadora(${t.id})">🔍 Detalhes</button>
+            </td>
+          </tr>
+        `).join('')}</tbody>
+      </table></div>`}
+    </div>
+  `;
+}
+
+window.showNovaTransportadora = function() {
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">➕ Nova Transportadora</div>
+      <div class="modal-row">
+        <label>Código da Transportadora *</label>
+        <input id="form-cod" placeholder="Ex: TRANSP_ABC">
+      </div>
+      <div class="modal-row">
+        <label>Nome *</label>
+        <input id="form-nome" placeholder="Transportadora ABC Ltda">
+      </div>
+      <div class="modal-row">
+        <label>CNPJ *</label>
+        <input id="form-cnpj" placeholder="00.000.000/0001-00">
+      </div>
+      <div class="modal-row">
+        <label>Email (contato) *</label>
+        <input type="email" id="form-email" placeholder="contato@transportadora.com">
+      </div>
+      <div class="modal-row">
+        <label>Telefone</label>
+        <input id="form-telefone" placeholder="(11) 99999-9999">
+      </div>
+      <div class="modal-row">
+        <label>Endereço</label>
+        <input id="form-endereco" placeholder="Rua, número, bairro">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-success" onclick="salvarTransportadora()">Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarTransportadora = async function() {
+  const data = {
+    cod_transp: document.getElementById('form-cod').value.trim(),
+    nome: document.getElementById('form-nome').value.trim(),
+    cnpj: document.getElementById('form-cnpj').value.trim(),
+    email: document.getElementById('form-email').value.trim(),
+    telefone: document.getElementById('form-telefone').value.trim(),
+    endereco: document.getElementById('form-endereco').value.trim()
+  };
+  if (!data.cod_transp || !data.nome || !data.cnpj || !data.email) {
+    alert('Preencha código, nome, CNPJ e email');
+    return;
+  }
+  const result = await apiPost('/admin/transportadoras', data);
+  if (result && result.message) {
+    closeModal();
+    // Mostra dados de acesso
+    alert(`Transportadora cadastrada!\n\nEmail: ${result.email_acesso}\nSenha: ${result.senha_temporaria}\n\nGuarde a senha. O usuário master deve trocar no primeiro acesso.`);
+    carregarTransportadoras();
+  } else {
+    alert((result && result.error) || 'Erro ao cadastrar');
+  }
+};
+
+window.verTransportadora = async function(id) {
+  const data = await apiGet(`/admin/transportadoras/${id}`);
+  if (!data) return;
+
+  const db = data.db_externo;
+  showModal(`
+    <div class="modal" style="width:600px">
+      <div class="modal-title">🔍 ${data.nome}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="background:var(--gray-light);padding:12px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Código</div>
+          <div style="font-size:0.9rem">${data.cod_transp}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:12px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">CNPJ</div>
+          <div style="font-size:0.9rem">${data.cnpj}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:12px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Email</div>
+          <div style="font-size:0.9rem">${data.email}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:12px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Telefone</div>
+          <div style="font-size:0.9rem">${data.telefone || '—'}</div>
+        </div>
+      </div>
+
+      ${db ? `
+      <div class="warning-box">🔌 Credenciais PostgreSQL para acesso externo</div>
+      <div class="info-grid">
+        <div><label>Host</label><span>${db.host}</span></div>
+        <div><label>Porta</label><span>${db.port}</span></div>
+        <div><label>Database</label><span>${db.database}</span></div>
+        <div><label>Usuário</label><span>${db.user}</span></div>
+        <div><label>Senha</label><span id="db-pass-display">●●●●●●●●●●●●</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-sm btn-primary" onclick="toggleDbPass()">Mostrar Senha</button>
+        <button class="btn btn-sm btn-warning" onclick="regenDbPass(${id})">Regenerar Senha PG</button>
+      </div>
+      ` : '<p style="color:var(--gray)">Credenciais PG não configuradas.</p>'}
+
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-sm btn-warning" onclick="regenSenhaTransportadora(${id})">🔄 Regenerar Senha Master</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Fechar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.toggleDbPass = function() {
+  const el = document.getElementById('db-pass-display');
+  if (!el) return;
+  if (el.dataset.revealed === 'true') {
+    el.textContent = '●●●●●●●●●●●●';
+    el.dataset.revealed = 'false';
+  } else {
+    const data = document.querySelector('.info-grid');
+    if (data) {
+      const spans = data.querySelectorAll('span');
+      el.textContent = spans[4]?.textContent || 'N/D';
+      el.dataset.revealed = 'true';
+    }
+  }
+};
+
+window.regenDbPass = async function(id) {
+  if (!confirm('Tem certeza? A senha anterior será invalidada.')) return;
+  const result = await apiPost(`/admin/transportadoras/${id}/regen-db-password`);
+  if (result && result.db_externo) {
+    alert(`Nova senha PG: ${result.db_externo.password}`);
+    verTransportadora(id);
+  } else {
+    alert('Erro ao regenerar');
+  }
+};
+
+window.regenSenhaTransportadora = async function(id) {
+  if (!confirm('Tem certeza? A senha do master será resetada.')) return;
+  const result = await apiPost(`/admin/transportadoras/${id}/regen-senha`);
+  if (result && result.senha_temporaria) {
+    alert(`Nova senha do master (${result.email}): ${result.senha_temporaria}`);
+  } else {
+    alert('Erro ao regenerar');
+  }
+};
+
+// ==================== TRANSPORTADORA PAGE ====================
+const TABS = [
+  { label: '📅 Programação', icon: '📅' },
+  { label: '👥 Equipe', icon: '👥' },
+  { label: '📦 Entregas', icon: '📦' },
+  { label: '🔄 Reversa', icon: '🔄' },
+  { label: '🔁 Reentregas', icon: '🔁' },
+  { label: '⬅️ Devoluções', icon: '⬅️' },
+  { label: '📊 Indicadores', icon: '📊' },
+  { label: '⚙️ Admin', icon: '⚙️' },
+  { label: '📁 Arquivo', icon: '📁' }
+];
+
+function renderTransportadoraPage(root) {
+  const user = getUser();
+  root.innerHTML = `
+    <div class="app">
+      <div class="header">
+        <div class="header-logo">🏠</div>
+        <div class="header-info">
+          <div class="header-title">Gestão de Escala — ${user.transportadora || ''}</div>
+          <div class="header-sub">${user.nome} · ${user.funcao}</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn-refresh" onclick="loadTransportadoraData()">🔄 Atualizar</button>
+          <button class="btn-refresh" onclick="handleLogout()">🚪 Sair</button>
+        </div>
+      </div>
+      <div class="tabs" id="tabs-bar"></div>
+      <div class="content" id="main-content"><div class="empty-state">🔄 Carregando...</div></div>
+    </div>
+    <div id="modal-root"></div>
+  `;
+
+  activeTab = 0;
+  renderTabs();
+  loadTransportadoraData();
+}
+
+function renderTabs() {
+  const bar = document.getElementById('tabs-bar');
+  if (!bar) return;
+  bar.innerHTML = TABS.map((t, i) => `
+    <div class="tab ${i === activeTab ? 'active' : ''}" onclick="switchTab(${i})">
+      <span>${t.icon}</span>
+      <span>${t.label}</span>
+      ${i === 1 ? `<span class="tab-badge" id="badge-equipe">0</span>` : ''}
+      ${i === 2 ? `<span class="tab-badge" id="badge-entregas">0</span>` : ''}
+      ${i === 3 ? `<span class="tab-badge" id="badge-reversa">0</span>` : ''}
+      ${i === 4 ? `<span class="tab-badge" id="badge-reentregas">0</span>` : ''}
+      ${i === 5 ? `<span class="tab-badge" id="badge-devolucoes">0</span>` : ''}
+    </div>
+  `).join('');
+}
+
+window.switchTab = function(i) {
+  activeTab = i;
+  renderTabs();
+  renderContent();
+};
+
+// ==================== DATA LOADING ====================
+async function loadTransportadoraData() {
+  const p1 = apiGet(`/cargas${filters.cargaInicio ? `?dataInicio=${filters.cargaInicio}` : ''}`)
+    .then(d => { if (d) DATA.cargas = d; });
+  const p2 = apiGet(`/entregas${filters.entInicio ? `?dataInicio=${filters.entInicio}` : ''}${filters.entFim ? `&dataFim=${filters.entFim}` : ''}`)
+    .then(d => { if (d) DATA.entregas = d; });
+  const p3 = apiGet(`/reversas`)
+    .then(d => { if (d) DATA.reversas = d; });
+  const p4 = apiGet(`/devolucoes`)
+    .then(d => { if (d) DATA.devolucoes = d; });
+  const p5 = apiGet(`/veiculos`)
+    .then(d => { if (d) DATA.veiculos = d; });
+  const p6 = apiGet(`/motoristas`)
+    .then(d => { if (d) DATA.motoristas = d; });
+  const p7 = apiGet(`/ajudantes`)
+    .then(d => { if (d) DATA.ajudantes = d; });
+  const p8 = apiGet(`/funcionarios`)
+    .then(d => { if (d) DATA.funcionarios = d; });
+
+  await Promise.all([p1, p2, p3, p4, p5, p6, p7, p8]);
+
+  // Update badges
+  const badgeEq = document.getElementById('badge-equipe');
+  if (badgeEq) badgeEq.textContent = DATA.cargas.filter(c => c.confirma && !c.confirma_equipe).length;
+
+  const badgeEnt = document.getElementById('badge-entregas');
+  if (badgeEnt) badgeEnt.textContent = DATA.entregas.filter(e => e.confirma_entrega === null).length;
+
+  const badgeRev = document.getElementById('badge-reversa');
+  if (badgeRev) badgeRev.textContent = DATA.reversas.filter(e => e.confirma_entrega === null).length;
+
+  const badgeReent = document.getElementById('badge-reentregas');
+  if (badgeReent) badgeReent.textContent = DATA.entregas.filter(e => e.reentrega === true && e.status_reentrega === null).length;
+
+  const badgeDev = document.getElementById('badge-devolucoes');
+  if (badgeDev) badgeDev.textContent = DATA.devolucoes.filter(e => e.status_devolucao === null).length;
+
+  renderContent();
+}
+
+function renderContent() {
+  const el = document.getElementById('main-content');
+  if (!el) return;
+
+  const renderers = [
+    renderProgramacao, renderEquipe, renderEntregas,
+    renderReversa, renderReentregas, renderDevolucoes,
+    renderIndicadores, renderAdminTransportadora, renderArquivo
+  ];
+  el.innerHTML = renderers[activeTab]();
+}
+
+// ==================== PROGRAMAÇÃO ====================
+function renderProgramacao() {
+  let cargas = DATA.cargas;
+  if (filters.cargaStatus === 'confirmado') cargas = cargas.filter(c => c.confirma);
+  if (filters.cargaStatus === 'pendente') cargas = cargas.filter(c => !c.confirma);
+  const confCount = cargas.filter(c => c.confirma).length;
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📅 Programação de Cargas</div></div>
+      <div class="filter-bar">
+        <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.cargaInicio}" onchange="filters.cargaInicio=this.value;loadTransportadoraData()"></div>
+        <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.cargaFim}" onchange="filters.cargaFim=this.value;loadTransportadoraData()"></div>
+        <div class="filter-group"><label>📊 Status</label><select onchange="filters.cargaStatus=this.value;renderContent()">
+          <option value="">Todos</option>
+          <option value="confirmado" ${filters.cargaStatus === 'confirmado' ? 'selected' : ''}>Confirmado</option>
+          <option value="pendente" ${filters.cargaStatus === 'pendente' ? 'selected' : ''}>Pendente</option>
+        </select></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${cargas.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Placa Definida</div><div class="stat-value success">${confCount}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${cargas.length - confCount}</div></div>
+      </div>
+      <div class="table-container"><table><thead><tr><th>Carga</th><th>Data</th><th>Qtd</th><th>Placa</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${cargas.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma carga</div></td></tr>` : cargas.map(c => `
+        <tr>
+          <td><strong>${c.carga}</strong></td>
+          <td>${fmtDate(c.data_entrega)}</td>
+          <td>${c.qtd_entg || 0}</td>
+          <td>
+            <input list="placa-list-${c.id}" id="placa-${c.id}" value="${c.placa || ''}" ${c.confirma ? 'disabled' : ''}
+              onchange="updatePlaca(${c.id}, this.value)" placeholder="Placa"
+              style="width:130px;padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;color:#1e293b">
+            <datalist id="placa-list-${c.id}">${DATA.veiculos.map(v => `<option value="${v.placa}">`).join('')}</datalist>
+          </td>
+          <td>${c.confirma ? '<span class="badge badge-success">✅ Confirmado</span>' : '<span class="badge badge-warning">⏳ Pendente</span>'}</td>
+          <td>
+            ${!c.confirma
+              ? `<button class="btn btn-sm btn-primary" onclick="confirmarCarga(${c.id})" ${!c.placa ? 'disabled' : ''}>✅ Confirmar</button>`
+              : `<button class="btn btn-sm btn-warning" onclick="desconfirmarCarga(${c.id})">✏️ Editar</button>`}
+          </td>
+        </tr>
+      `).join('')}</tbody></table></div>
+    </div>
+  `;
+}
+
+window.updatePlaca = async function(id, placa) {
+  const c = DATA.cargas.find(x => x.id === id);
+  if (c) c.placa = placa;
+};
+
+window.confirmarCarga = async function(id) {
+  const c = DATA.cargas.find(x => x.id === id);
+  if (!c || !c.placa) { alert('Informe uma placa'); return; }
+  const result = await apiPut(`/cargas/${id}/confirmar`);
+  if (result) { c.confirma = true; renderContent(); renderTabs(); }
+  else alert('Erro ao confirmar');
+};
+
+window.desconfirmarCarga = async function(id) {
+  const result = await apiPut(`/cargas/${id}/desconfirmar`);
+  if (result) {
+    const c = DATA.cargas.find(x => x.id === id);
+    if (c) { c.confirma = false; c.confirma_equipe = false; c.motorista = null; c.ajudante_01 = null; c.ajudante_02 = null; }
+    renderContent(); renderTabs();
+  } else alert('Erro ao desconfirmar');
+};
+
+// ==================== EQUIPE ====================
+function renderEquipe() {
+  let cargas = DATA.cargas.filter(c => c.confirma);
+  if (filters.equipeInicio) cargas = cargas.filter(c => c.data_entrega?.slice(0, 10) >= filters.equipeInicio);
+  if (filters.equipeFim) cargas = cargas.filter(c => c.data_entrega?.slice(0, 10) <= filters.equipeFim);
+  if (filters.equipeStatus === 'confirmado') cargas = cargas.filter(c => c.confirma_equipe);
+  if (filters.equipeStatus === 'pendente') cargas = cargas.filter(c => !c.confirma_equipe);
+  if (filters.equipePlaca) cargas = cargas.filter(c => c.placa === filters.equipePlaca);
+
+  const placas = [...new Set(DATA.cargas.filter(c => c.placa).map(c => c.placa))];
+  const motoristas = DATA.funcionarios.filter(f => f.funcao === 'motorista');
+  const ajudantes = DATA.funcionarios.filter(f => f.funcao === 'ajudante');
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">👥 Definição de Equipe</div></div>
+      <div class="filter-bar">
+        <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.equipeInicio}" onchange="filters.equipeInicio=this.value;renderContent()"></div>
+        <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.equipeFim}" onchange="filters.equipeFim=this.value;renderContent()"></div>
+        <div class="filter-group"><label>📊 Status</label><select onchange="filters.equipeStatus=this.value;renderContent()">
+          <option value="">Todos</option>
+          <option value="confirmado" ${filters.equipeStatus === 'confirmado' ? 'selected' : ''}>Definida</option>
+          <option value="pendente" ${filters.equipeStatus === 'pendente' ? 'selected' : ''}>Pendente</option>
+        </select></div>
+        <div class="filter-group"><label>🚛 Placa</label>
+          <input list="eqp-placas" value="${filters.equipePlaca}" onchange="filters.equipePlaca=this.value;renderContent()" placeholder="Filtrar">
+          <datalist id="eqp-placas">${placas.map(p => `<option value="${p}">`).join('')}</datalist>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Cargas</div><div class="stat-value primary">${cargas.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Equipe OK</div><div class="stat-value success">${cargas.filter(c => c.confirma_equipe).length}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${cargas.filter(c => !c.confirma_equipe).length}</div></div>
+      </div>
+      ${cargas.length === 0 ? '<div class="empty-state">Nenhuma carga encontrada</div>' : cargas.map(c => `
+        <div class="equipe-card ${c.confirma_equipe ? 'confirmed' : ''}" style="padding:16px;border-radius:12px;border:1px solid #e2e8f0;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+            <div><strong>${c.carga}</strong> <span class="badge badge-info">${c.placa || 'Sem placa'}</span></div>
+            ${c.confirma_equipe ? '<span class="badge badge-success">✅ Confirmada</span>' : '<span class="badge badge-warning">⏳ Pendente</span>'}
+          </div>
+          <div class="equipe-grid">
+            <div>
+              <label style="font-size:11px;color:#64748b">Motorista *</label>
+              <input list="mot-${c.id}" id="mot-${c.id}" value="${c.motorista || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="mot-${c.id}">${motoristas.map(m => `<option value="${m.nome}">`).join('')}</datalist>
+            </div>
+            <div>
+              <label style="font-size:11px;color:#64748b">Ajudante 1</label>
+              <input list="aj1-${c.id}" id="aj1-${c.id}" value="${c.ajudante_01 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="aj1-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+            </div>
+            <div>
+              <label style="font-size:11px;color:#64748b">Ajudante 2</label>
+              <input list="aj2-${c.id}" id="aj2-${c.id}" value="${c.ajudante_02 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="aj2-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+            </div>
+          </div>
+          ${!c.confirma_equipe
+            ? `<button class="btn btn-success" onclick="confirmarEquipe(${c.id})">✅ Confirmar Equipe</button>`
+            : `<button class="btn btn-warning" onclick="editarEquipe(${c.id})">✏️ Editar</button>`}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+window.confirmarEquipe = async function(id) {
+  const mot = document.getElementById(`mot-${id}`)?.value;
+  if (!mot) { alert('Informe o motorista'); return; }
+  const payload = {
+    motorista: mot,
+    ajudante_01: document.getElementById(`aj1-${id}`)?.value || null,
+    ajudante_02: document.getElementById(`aj2-${id}`)?.value || null
+  };
+  const result = await apiPut(`/cargas/${id}/equipe`, payload);
+  if (result) {
+    const c = DATA.cargas.find(x => x.id === id);
+    if (c) Object.assign(c, payload, { confirma_equipe: true });
+    renderContent(); renderTabs();
+  } else alert('Erro ao confirmar equipe');
+};
+
+window.editarEquipe = async function(id) {
+  const result = await apiPut(`/cargas/${id}/desfazer-equipe`);
+  if (result) {
+    const c = DATA.cargas.find(x => x.id === id);
+    if (c) { c.confirma_equipe = false; c.motorista = null; c.ajudante_01 = null; c.ajudante_02 = null; }
+    renderContent(); renderTabs();
+  } else alert('Erro ao editar');
+};
+
+// ==================== ENTREGAS ====================
+function renderEntregas() {
+  let lista = DATA.entregas.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.confirma_equipe));
+  if (filters.entInicio) lista = lista.filter(e => e.data_nf?.slice(0, 10) >= filters.entInicio);
+  if (filters.entFim) lista = lista.filter(e => e.data_nf?.slice(0, 10) <= filters.entFim);
+  if (filters.entCarga) lista = lista.filter(e => e.fc === filters.entCarga);
+  if (filters.entPlaca) lista = lista.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.placa === filters.entPlaca));
+
+  const entregues = lista.filter(e => e.confirma_entrega === true && !e.reentrega).length;
+  const insucessos = lista.filter(e => e.confirma_entrega === false && !e.reentrega).length;
+  const pendentes = lista.filter(e => e.confirma_entrega === null && !e.reentrega).length;
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📦 Confirmação de Entregas</div></div>
+      <div class="filter-bar">
+        <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.entInicio}" onchange="filters.entInicio=this.value;loadTransportadoraData()"></div>
+        <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.entFim}" onchange="filters.entFim=this.value;loadTransportadoraData()"></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Entregues</div><div class="stat-value success">${entregues}</div></div>
+        <div class="stat-item"><div class="stat-label">Insucesso</div><div class="stat-value danger">${insucessos}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${pendentes}</div></div>
+      </div>
+      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma entrega</div></td></tr>` : lista.map(e => `
+        <tr>
+          <td>${e.nf}</td>
+          <td><span class="badge badge-info">${e.fc}</span></td>
+          <td>${(e.cliente || '—').slice(0, 35)}</td>
+          <td>${e.bairro || '—'}</td>
+          <td>${e.confirma_entrega === true ? '<span class="badge badge-success">✅ Entregue</span>' :
+                e.confirma_entrega === false ? '<span class="badge badge-danger">❌ Insucesso</span>' :
+                '<span class="badge badge-gray">⏳ Pendente</span>'}</td>
+          <td>
+            ${e.confirma_entrega === null
+              ? `<button class="btn btn-sm btn-success" onclick="confirmarEntrega(${e.id}, true)">✅ Entregue</button>
+                 <button class="btn btn-sm btn-danger" onclick="openInsucesso(${e.id})">❌ Insucesso</button>`
+              : `<button class="btn btn-sm btn-warning" onclick="reabrirEntrega(${e.id})">✏️ Editar</button>`}
+          </td>
+        </tr>
+      `).join('')}</tbody></table></div>
+    </div>
+  `;
+}
+
+window.confirmarEntrega = async function(id, status) {
+  const result = await apiPut(`/entregas/${id}/confirmar`, { status });
+  if (result) {
+    const e = DATA.entregas.find(x => x.id === id);
+    if (e) e.confirma_entrega = status;
+    renderContent(); renderTabs();
+  } else alert('Erro');
+};
+
+window.reabrirEntrega = async function(id) {
+  const result = await apiPut(`/entregas/${id}/reabrir`);
+  if (result) {
+    const e = DATA.entregas.find(x => x.id === id);
+    if (e) { e.confirma_entrega = null; e.reentrega = null; e.motivo_insucesso = null; }
+    renderContent(); renderTabs();
+  } else alert('Erro');
+};
+
+window.openInsucesso = function(id) {
+  const e = DATA.entregas.find(x => x.id === id);
+  if (!e) return;
+  const MOTIVOS = ['Cliente ausente','Endereço não encontrado','Recusou recebimento','Produto com avaria','Divergência no pedido','Acesso impedido','CEP incorreto','Reagendamento a pedido','Veículo sem acesso','Outros'];
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">⚠️ Insucesso - ${e.nf}</div>
+      <div class="modal-row">
+        <label>Motivo *</label>
+        <select id="motivo-insucesso">${MOTIVOS.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
+      </div>
+      <div class="modal-row">
+        <label>Reentrega?</label>
+        <div class="radio-group">
+          <label class="radio-opt" id="opt-sim" onclick="selectRadioOpt('sim')">
+            <input type="radio" name="reentrega" value="true"> Sim, reagendar
+          </label>
+          <label class="radio-opt" id="opt-nao" onclick="selectRadioOpt('nao')">
+            <input type="radio" name="reentrega" value="false"> Não, devolver ao CD
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="salvarInsucesso(${id})">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.selectRadioOpt = function(opt) {
+  const sim = document.getElementById('opt-sim');
+  const nao = document.getElementById('opt-nao');
+  document.querySelector('input[name="reentrega"][value="' + opt + '"]').checked = true;
+  if (sim) sim.className = 'radio-opt' + (opt === 'sim' ? ' selected-yes' : '');
+  if (nao) nao.className = 'radio-opt' + (opt === 'nao' ? ' selected-no' : '');
+};
+
+window.salvarInsucesso = async function(id) {
+  const motivo = document.getElementById('motivo-insucesso')?.value;
+  const reentregaRadio = document.querySelector('input[name="reentrega"]:checked');
+  if (!motivo || !reentregaRadio) { alert('Preencha todos os campos'); return; }
+  const reentrega = reentregaRadio.value === 'true';
+  const result = await apiPost(`/entregas/${id}/insucesso`, { motivo, reentrega, devolucao: !reentrega });
+  if (result) {
+    const e = DATA.entregas.find(x => x.id === id);
+    if (e) { e.confirma_entrega = false; e.motivo_insucesso = motivo; e.reentrega = reentrega; }
+    closeModal();
+    renderContent(); renderTabs();
+  } else alert('Erro');
+};
+
+// ==================== REVERSA ====================
+function renderReversa() {
+  let lista = [...DATA.reversas];
+  const coletados = lista.filter(e => e.confirma_entrega === true && !e.reentrega).length;
+  const pendentes = lista.filter(e => e.confirma_entrega === null).length;
+  const agRecoleta = lista.filter(e => e.reentrega === true && e.status_devolucao === null).length;
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">🔄 Coletas e Trocas (Reversa)</div></div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Coletados</div><div class="stat-value success">${coletados}</div></div>
+        <div class="stat-item"><div class="stat-label">Aguard. Recoleta</div><div class="stat-value warning">${agRecoleta}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value default">${pendentes}</div></div>
+      </div>
+      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? '<tr><td colspan="6"><div class="empty-state">📭 Nenhuma coleta</div></td></tr>' : lista.map(e => {
+        let st = '', ac = '';
+        if (e.status_reentrega === true || (e.status_devolucao === true && !e.reentrega)) {
+          st = '<span class="badge badge-success">✅ Finalizado</span>';
+          ac = '<span style="color:#64748b;font-size:0.75rem">Concluído</span>';
+        } else if (e.reentrega === true && e.status_devolucao === null) {
+          st = '<span class="badge badge-warning">🔄 Aguard. recoleta</span>';
+          ac = `<button class="btn btn-sm btn-success" onclick="confirmarRecoleta(${e.id}, true)">✅ Recoletado</button>
+                <button class="btn btn-sm btn-danger" onclick="confirmarRecoleta(${e.id}, false)">❌ Insucesso</button>`;
+        } else if (e.reentrega === true && e.status_devolucao === true) {
+          st = '<span class="badge badge-success">✅ Recoletado</span>';
+          ac = '<span style="color:#64748b;font-size:0.75rem">Concluído</span>';
+        } else if (e.devolucao === true && e.status_reentrega === null) {
+          st = '<span class="badge badge-warning">📦 Dev. CD</span>';
+          ac = `<button class="btn btn-sm btn-success" onclick="confirmarDevCD(${e.id})">✅ Dev. CD</button>`;
+        } else if (e.confirma_entrega === true) {
+          st = '<span class="badge badge-success">✅ Coletado</span>';
+          ac = `<button class="btn btn-sm btn-warning" onclick="reabrirColeta(${e.id})">✏️ Editar</button>`;
+        } else if (e.confirma_entrega === false) {
+          st = '<span class="badge badge-danger">❌ Insucesso</span>';
+          ac = `<button class="btn btn-sm btn-warning" onclick="reabrirColeta(${e.id})">✏️ Reabrir</button>`;
+        } else {
+          st = '<span class="badge badge-gray">⏳ Pendente</span>';
+          ac = `<button class="btn btn-sm btn-success" onclick="confirmarColeta(${e.id}, true)">✅ Coletado</button>
+                <button class="btn btn-sm btn-danger" onclick="openInsucessoColeta(${e.id})">❌ Insucesso</button>`;
+        }
+        return `<tr><td>${e.nf || e.chave_nf || '—'}</td><td><span class="badge badge-info">${e.fc || e.carga || '—'}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td>${e.bairro||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
+      }).join('')}</tbody></table></div>
+    </div>
+  `;
+}
+
+window.confirmarColeta = async function(id, status) {
+  const result = await apiPut(`/reversas/${id}/confirmar`, { status });
+  if (result) {
+    const e = DATA.reversas.find(x => x.id === id);
+    if (e) { e.confirma_entrega = status; if (status) e.devolucao = true; }
+    renderContent(); renderTabs();
+  }
+};
+
+window.openInsucessoColeta = function(id) {
+  const e = DATA.reversas.find(x => x.id === id);
+  const MOTIVOS = ['Cliente ausente','Endereço não encontrado','Recusou troca','Produto com avaria','Divergência no pedido','Acesso impedido','Outros'];
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">⚠️ Insucesso Coleta - ${e?.nf || e?.chave_nf || ''}</div>
+      <div class="modal-row"><label>Motivo *</label><select id="mot-coleta">${MOTIVOS.map(m => `<option value="${m}">${m}</option>`).join('')}</select></div>
+      <div class="modal-row"><label>Recoleta?</label><div class="radio-group">
+        <label class="radio-opt" id="rc-sim" onclick="selectRadioColeta('sim')"><input type="radio" name="recol" value="true"> Sim</label>
+        <label class="radio-opt" id="rc-nao" onclick="selectRadioColeta('nao')"><input type="radio" name="recol" value="false"> Não, dev. CD</label>
+      </div></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="salvarInsucessoColeta(${id})">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.selectRadioColeta = function(opt) {
+  const sim = document.getElementById('rc-sim');
+  const nao = document.getElementById('rc-nao');
+  document.querySelector('input[name="recol"][value="' + opt + '"]').checked = true;
+  if (sim) sim.className = 'radio-opt' + (opt === 'sim' ? ' selected-yes' : '');
+  if (nao) nao.className = 'radio-opt' + (opt === 'nao' ? ' selected-no' : '');
+};
+
+window.salvarInsucessoColeta = async function(id) {
+  const motivo = document.getElementById('mot-coleta')?.value;
+  const rec = document.querySelector('input[name="recol"]:checked');
+  if (!motivo || !rec) { alert('Preencha tudo'); return; }
+  const reentrega = rec.value === 'true';
+  const result = await apiPost(`/reversas/${id}/insucesso`, { motivo, reentrega, devolucao: !reentrega });
+  if (result) {
+    const e = DATA.reversas.find(x => x.id === id);
+    if (e) { e.confirma_entrega = false; e.motivo_insucesso = motivo; e.reentrega = reentrega; }
+    closeModal(); renderContent(); renderTabs();
+  }
+};
+
+window.reabrirColeta = async function(id) {
+  const result = await apiPut(`/reversas/${id}/reabrir`);
+  if (result) {
+    const e = DATA.reversas.find(x => x.id === id);
+    if (e) { e.confirma_entrega = null; e.reentrega = null; e.devolucao = null; e.motivo_insucesso = null; e.status_devolucao = null; e.status_reentrega = null; }
+    renderContent(); renderTabs();
+  }
+};
+
+window.confirmarRecoleta = async function(id, status) {
+  const result = await apiPut(`/reversas/${id}/recoleta`, { status });
+  if (result) {
+    const e = DATA.reversas.find(x => x.id === id);
+    if (e) e.status_devolucao = status;
+    renderContent(); renderTabs();
+  }
+};
+
+window.confirmarDevCD = async function(id) {
+  const result = await apiPut(`/reversas/${id}/devolucao-cd`);
+  if (result) {
+    const e = DATA.reversas.find(x => x.id === id);
+    if (e) e.status_reentrega = true;
+    renderContent(); renderTabs();
+  }
+};
+
+// ==================== REENTREGAS ====================
+function renderReentregas() {
+  let lista = DATA.entregas.filter(e => e.reentrega === true);
+  const pend = lista.filter(e => e.status_reentrega === null && e.confirma_entrega === null).length;
+  const ok = lista.filter(e => e.status_reentrega === true).length;
+  const dev = lista.filter(e => e.status_reentrega === false).length;
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">🔁 Reentregas</div></div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${pend}</div></div>
+        <div class="stat-item"><div class="stat-label">Entregues</div><div class="stat-value success">${ok}</div></div>
+        <div class="stat-item"><div class="stat-label">Devolvidas</div><div class="stat-value danger">${dev}</div></div>
+      </div>
+      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Motivo</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? '<tr><td colspan="6"><div class="empty-state">Nenhuma reentrega</div></td></tr>' : lista.map(e => {
+        let st, ac;
+        if (e.status_reentrega === true) { st = '<span class="badge badge-success">✅ Entregue</span>'; ac = '<span style="color:#64748b;font-size:0.75rem">Concluído</span>'; }
+        else if (e.status_reentrega === false) { st = '<span class="badge badge-danger">📦 Devolvido</span>'; ac = '<span style="color:#64748b;font-size:0.75rem">Processado</span>'; }
+        else if (e.confirma_entrega === true) { st = '<span class="badge badge-success">✅ Entregue</span>'; ac = `<button class="btn btn-sm btn-warning" onclick="reabrirReentrega(${e.id})">✏️ Editar</button>`; }
+        else if (e.confirma_entrega === false) { st = '<span class="badge badge-danger">❌ Insucesso</span>'; ac = `<button class="btn btn-sm btn-warning" onclick="reabrirReentrega(${e.id})">✏️ Reabrir</button>`; }
+        else { st = '<span class="badge badge-warning">⏳ Pendente</span>'; ac = `<button class="btn btn-sm btn-success" onclick="confirmarEntrega(${e.id}, true)">✅ Entregue</button> <button class="btn btn-sm btn-danger" onclick="openInsucesso(${e.id})">❌ Insucesso</button>`; }
+        return `<tr><td>${e.nf}</td><td><span class="badge badge-info">${e.fc}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td style="max-width:120px;white-space:normal">${e.motivo_insucesso||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
+      }).join('')}</tbody></table></div>
+    </div>
+  `;
+}
+
+window.reabrirReentrega = function(id) {
+  const e = DATA.entregas.find(x => x.id === id);
+  if (!e) return;
+  e.confirma_entrega = null; e.status_reentrega = null; e.motivo_insucesso = null;
+  if (e.devolucao) e.devolucao = null;
+  renderContent(); renderTabs();
+};
+
+// ==================== DEVOLUÇÕES ====================
+function renderDevolucoes() {
+  let lista = [...DATA.devolucoes];
+  const pend = lista.filter(e => e.status_devolucao === null).length;
+  const conf = lista.filter(e => e.status_devolucao === true).length;
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">⬅️ Devoluções ao CD</div></div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>
+        <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${pend}</div></div>
+        <div class="stat-item"><div class="stat-label">Confirmadas</div><div class="stat-value success">${conf}</div></div>
+      </div>
+      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Motivo</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? '<tr><td colspan="6"><div class="empty-state">📦 Nenhuma devolução</div></td></tr>' : lista.map(e => `
+        <tr>
+          <td>${e.nf}</td>
+          <td><span class="badge badge-info">${e.fc}</span></td>
+          <td>${(e.cliente||'—').slice(0,35)}</td>
+          <td style="max-width:120px;white-space:normal">${e.motivo_insucesso||'—'}</td>
+          <td>${e.status_devolucao === true ? '<span class="badge badge-success">✅ Confirmada</span>' : '<span class="badge badge-warning">⏳ Pendente</span>'}</td>
+          <td>${e.status_devolucao === null ? `<button class="btn btn-sm btn-success" onclick="confirmarDevolucao(${e.id})">✅ Confirmar</button>` : '<span style="color:#64748b;font-size:0.75rem">Finalizado</span>'}</td>
+        </tr>
+      `).join('')}</tbody></table></div>
+    </div>
+  `;
+}
+
+window.confirmarDevolucao = async function(id) {
+  const result = await apiPut(`/devolucoes/${id}/confirmar`);
+  if (result) {
+    const e = DATA.devolucoes.find(x => x.id === id);
+    if (e) e.status_devolucao = true;
+    renderContent(); renderTabs();
+  }
+};
+
+// ==================== INDICADORES ====================
+function renderIndicadores() {
+  const periodoInicio = filters.entInicio || daysAgo(30);
+  const periodoFim = filters.entFim || today();
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Indicadores de Performance</div></div>
+      <div class="filter-bar">
+        <div class="filter-group"><label>📅 Início</label><input type="date" id="ind-inicio" value="${periodoInicio}"></div>
+        <div class="filter-group"><label>📅 Fim</label><input type="date" id="ind-fim" value="${periodoFim}"></div>
+        <button class="btn btn-sm btn-primary" onclick="carregarIndicadores()">📊 Atualizar</button>
+      </div>
+      <div id="indicadores-content"><div class="empty-state">🔄 Carregando indicadores...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📄 Relatórios</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('entregas','csv')">📥 Entregas CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('entregas','xlsx')">📥 Entregas XLSX</button>
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('insucessos','csv')">📥 Insucessos CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('motoristas','csv')">📥 Motoristas CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('reentregas','csv')">📥 Reentregas CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="baixarRelatorio('devolucoes','csv')">📥 Devoluções CSV</button>
+      </div>
+    </div>
+  `;
+
+  // Auto-load
+  setTimeout(() => carregarIndicadores(), 100);
+}
+
+async function carregarIndicadores() {
+  const inicio = document.getElementById('ind-inicio')?.value || daysAgo(30);
+  const fim = document.getElementById('ind-fim')?.value || today();
+  const el = document.getElementById('indicadores-content');
+  if (!el) return;
+
+  const params = `?dataInicio=${inicio}&dataFim=${fim}`;
+  const [resumo, tendencia, motivos, top] = await Promise.all([
+    apiGet(`/indicadores/resumo${params}`),
+    apiGet(`/indicadores/tendencia${params}`),
+    apiGet(`/indicadores/motivos`),
+    apiGet(`/indicadores/top-motoristas`)
+  ]);
+
+  if (!resumo) { el.innerHTML = '<div class="empty-state">Erro ao carregar</div>'; return; }
+
+  el.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-item"><div class="stat-label">Total Entregas</div><div class="stat-value primary">${resumo.total}</div></div>
+      <div class="stat-item"><div class="stat-label">Taxa Sucesso</div><div class="stat-value success">${resumo.taxaSucesso}%</div></div>
+      <div class="stat-item"><div class="stat-label">Insucessos</div><div class="stat-value danger">${resumo.insucessos}</div></div>
+      <div class="stat-item"><div class="stat-label">Reentregas Pend.</div><div class="stat-value warning">${resumo.reentregasPend}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-weight:600;margin-bottom:8px">📈 Tendência Diária</div>
+        ${(tendencia || []).length === 0 ? '<div style="color:var(--gray);font-size:0.85rem">Sem dados no período</div>' : `
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto">
+          ${tendencia.map(t => `
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem">
+              <span style="min-width:80px">${fmtDate(t.data_nf)}</span>
+              <div style="flex:1;display:flex;gap:2px;height:20px;border-radius:4px;overflow:hidden">
+                <div style="flex:${t.entregues};background:var(--green);min-width:${t.total > 0 ? '4px' : '0'};height:100%"></div>
+                <div style="flex:${t.insucessos};background:var(--red);min-width:${t.total > 0 ? '4px' : '0'};height:100%"></div>
+              </div>
+              <span style="min-width:50px;text-align:right;color:var(--gray)">${t.total} ents</span>
+            </div>
+          `).join('')}
+        </div>`}
+      </div>
+
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-weight:600;margin-bottom:8px">🥧 Motivos de Insucesso</div>
+        ${(motivos || []).length === 0 ? '<div style="color:var(--gray);font-size:0.85rem">Sem insucessos</div>' : `
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${motivos.map(m => `
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem">
+              <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.motivo_insucesso}</span>
+              <span class="badge badge-danger">${m.total}</span>
+            </div>
+          `).join('')}
+        </div>`}
+      </div>
+    </div>
+
+    <div style="margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:12px">
+      <div style="font-weight:600;margin-bottom:8px">🏆 Top Motoristas</div>
+      ${(top || []).length === 0 ? '<div style="color:var(--gray);font-size:0.85rem">Sem dados</div>' : `
+      <div class="table-container"><table>
+        <thead><tr><th>Motorista</th><th>Placa</th><th>Entregas</th><th>Sucesso</th></tr></thead>
+        <tbody>${top.map(t => `
+          <tr><td>${t.motorista}</td><td>${t.placa}</td><td>${t.entregas}</td><td><span class="badge badge-success">${t.sucesso}</span></td></tr>
+        `).join('')}</tbody>
+      </table></div>`}
+    </div>
+  `;
+}
+
+async function baixarRelatorio(tipo, formato) {
+  const inicio = document.getElementById('ind-inicio')?.value || daysAgo(30);
+  const fim = document.getElementById('ind-fim')?.value || today();
+  const token = getToken();
+  const url = `${API}/relatorios/${tipo}?dataInicio=${inicio}&dataFim=${fim}&formato=${formato}`;
+  try {
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) { alert('Erro ao gerar relatório'); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${tipo}_${inicio}_${fim}.${formato}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch { alert('Erro ao baixar'); }
+}
+
+// ==================== ADMIN TRANSPORTADORA ====================
+function renderAdminTransportadora() {
+  const user = getUser();
+  const isMaster = user.funcao === 'master';
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚙️ Administração</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">👨‍✈️</div>
+          <div style="font-weight:600;margin-bottom:8px">Motoristas (${DATA.motoristas.filter(m => m.ativo !== false).length})</div>
+          <button class="btn btn-sm btn-primary" onclick="abrirGestao('motoristas')">Gerenciar</button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">🧑‍🤝‍🧑</div>
+          <div style="font-weight:600;margin-bottom:8px">Ajudantes (${DATA.ajudantes.filter(a => a.ativo !== false).length})</div>
+          <button class="btn btn-sm btn-primary" onclick="abrirGestao('ajudantes')">Gerenciar</button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">🚛</div>
+          <div style="font-weight:600;margin-bottom:8px">Veículos (${DATA.veiculos.filter(v => v.ativo !== false).length})</div>
+          <button class="btn btn-sm btn-primary" onclick="abrirGestao('veiculos')">Gerenciar</button>
+        </div>
+        ${isMaster ? `
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">👤</div>
+          <div style="font-weight:600;margin-bottom:8px">Usuários</div>
+          <button class="btn btn-sm btn-primary" onclick="abrirGestao('usuarios')">Gerenciar</button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">🔌</div>
+          <div style="font-weight:600;margin-bottom:8px">Conexão PostgreSQL</div>
+          <button class="btn btn-sm btn-primary" onclick="verDbCredentials()">Ver Credenciais</button>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+window.abrirGestao = async function(tipo) {
+  const token = getToken();
+  let lista, titulo, campos, apiUrl;
+
+  switch (tipo) {
+    case 'motoristas':
+      lista = DATA.motoristas;
+      titulo = 'Motoristas';
+      campos = ['nome', 'cpf', 'cnh', 'telefone'];
+      apiUrl = '/motoristas';
+      break;
+    case 'ajudantes':
+      lista = DATA.ajudantes;
+      titulo = 'Ajudantes';
+      campos = ['nome', 'cpf', 'telefone'];
+      apiUrl = '/ajudantes';
+      break;
+    case 'veiculos':
+      lista = DATA.veiculos;
+      titulo = 'Veículos';
+      campos = ['placa', 'tipo', 'obs'];
+      apiUrl = '/veiculos';
+      break;
+    case 'usuarios':
+      const users = await apiGet('/usuarios');
+      lista = users || [];
+      titulo = 'Usuários';
+      campos = ['nome', 'email', 'funcao'];
+      apiUrl = '/usuarios';
+      break;
+    default: return;
+  }
+
+  const headers = campos.join('|');
+  showModal(`
+    <div class="modal" style="width:650px;max-height:80vh">
+      <div class="modal-title">👥 ${titulo}</div>
+      <div style="margin-bottom:12px">
+        <button class="btn btn-sm btn-success" onclick="novoCadastro('${tipo}')">+ Novo</button>
+      </div>
+      <div class="table-container" style="max-height:400px;overflow-y:auto">
+        <table>
+          <thead><tr>${campos.map(c => `<th>${c.charAt(0).toUpperCase()+c.slice(1)}</th>`).join('')}${tipo !== 'usuarios' ? '<th>Ativo</th>' : ''}<th>Ação</th></tr></thead>
+          <tbody>
+            ${lista.length === 0 ? '<tr><td colspan="99"><div class="empty-state">Nenhum registro</div></td></tr>' : lista.map(item => `
+              <tr>
+                ${campos.map(c => `<td>${item[c] || '—'}</td>`).join('')}
+                ${tipo !== 'usuarios' ? `<td>${item.ativo !== false ? '✅' : '❌'}</td>` : ''}
+                <td>
+                  <button class="btn btn-sm btn-warning" onclick="editarCadastro('${tipo}', ${item.id})">✏️</button>
+                  <button class="btn btn-sm btn-danger" onclick="excluirCadastro('${tipo}', ${item.id})">🗑️</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Fechar</button></div>
+    </div>
+  `);
+};
+
+window.novoCadastro = function(tipo) {
+  let html = '';
+  const titulo = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+
+  if (tipo === 'motoristas') {
+    html = `<input id="f-nome" placeholder="Nome"><input id="f-cpf" placeholder="CPF"><input id="f-cnh" placeholder="CNH"><input id="f-tel" placeholder="Telefone">`;
+  } else if (tipo === 'ajudantes') {
+    html = `<input id="f-nome" placeholder="Nome"><input id="f-cpf" placeholder="CPF"><input id="f-tel" placeholder="Telefone">`;
+  } else if (tipo === 'veiculos') {
+    html = `<input id="f-placa" placeholder="Placa (ex: ABC-1234)"><input id="f-tipo" placeholder="Tipo (ex: Fiorino)"><input id="f-obs" placeholder="Observação">`;
+  } else if (tipo === 'usuarios') {
+    html = `<input id="f-nome" placeholder="Nome"><input id="f-email" type="email" placeholder="Email"><select id="f-funcao"><option value="admin">Admin</option><option value="operador">Operador</option></select>`;
+  }
+
+  // Simple in-place form using alert prompt for simplicity
+  closeModal();
+
+  if (tipo === 'usuarios') {
+    const nome = prompt('Nome:');
+    if (!nome) return;
+    const email = prompt('Email:');
+    if (!email) return;
+    const funcao = prompt('Função (admin/operador):') || 'operador';
+    salvarCadastro(tipo, { nome, email, funcao });
+  } else if (tipo === 'motoristas') {
+    const nome = prompt('Nome:');
+    if (!nome) return;
+    salvarCadastro(tipo, { nome, cpf: prompt('CPF:') || null, cnh: prompt('CNH:') || null, telefone: prompt('Telefone:') || null });
+  } else if (tipo === 'ajudantes') {
+    const nome = prompt('Nome:');
+    if (!nome) return;
+    salvarCadastro(tipo, { nome, cpf: prompt('CPF:') || null, telefone: prompt('Telefone:') || null });
+  } else if (tipo === 'veiculos') {
+    const placa = prompt('Placa:');
+    if (!placa) return;
+    salvarCadastro(tipo, { placa: placa.toUpperCase(), tipo: prompt('Tipo:') || null, obs: prompt('Obs:') || null });
+  }
+};
+
+window.salvarCadastro = async function(tipo, data) {
+  const apiMap = { motoristas: '/motoristas', ajudantes: '/ajudantes', veiculos: '/veiculos', usuarios: '/usuarios' };
+  const result = await apiPost(apiMap[tipo], data);
+  if (result && result.id) {
+    alert('Salvo com sucesso!');
+
+    if (tipo === 'usuarios' && result.senha_temporaria) {
+      alert(`Senha temporária: ${result.senha_temporaria}`);
+    }
+
+    // Refresh data
+    if (['motoristas', 'ajudantes'].includes(tipo)) {
+      const d = await apiGet(`/${tipo}`);
+      if (d) DATA[tipo] = d;
+      const f = await apiGet('/funcionarios');
+      if (f) DATA.funcionarios = f;
+    } else if (tipo === 'veiculos') {
+      const d = await apiGet('/veiculos');
+      if (d) DATA.veiculos = d;
+    }
+    renderContent();
+  } else {
+    alert((result && result.error) || 'Erro ao salvar');
+  }
+};
+
+window.excluirCadastro = async function(tipo, id) {
+  if (!confirm('Tem certeza?')) return;
+  const apiMap = { motoristas: '/motoristas', ajudantes: '/ajudantes', veiculos: '/veiculos' };
+  const result = await apiDelete(`${apiMap[tipo]}/${id}`);
+  if (result && result.message) {
+    DATA[tipo] = DATA[tipo].filter(x => x.id !== id);
+    if (['motoristas', 'ajudantes'].includes(tipo)) {
+      const f = await apiGet('/funcionarios');
+      if (f) DATA.funcionarios = f;
+    }
+    renderContent();
+  } else {
+    alert('Erro ao excluir');
+  }
+};
+
+window.editarCadastro = async function(tipo, id) {
+  const item = DATA[tipo]?.find(x => x.id === id);
+  if (!item) return;
+
+  if (tipo === 'motoristas') {
+    const nome = prompt('Nome:', item.nome);
+    if (!nome) return;
+    const result = await apiPut(`/motoristas/${id}`, { nome, cpf: prompt('CPF:', item.cpf||'') || null, cnh: prompt('CNH:', item.cnh||'') || null, telefone: prompt('Telefone:', item.telefone||'') || null });
+    if (result) { Object.assign(item, result); const f = await apiGet('/funcionarios'); if (f) DATA.funcionarios = f; renderContent(); }
+  } else if (tipo === 'ajudantes') {
+    const nome = prompt('Nome:', item.nome);
+    if (!nome) return;
+    const result = await apiPut(`/ajudantes/${id}`, { nome, cpf: prompt('CPF:', item.cpf||'') || null, telefone: prompt('Telefone:', item.telefone||'') || null });
+    if (result) { Object.assign(item, result); const f = await apiGet('/funcionarios'); if (f) DATA.funcionarios = f; renderContent(); }
+  } else if (tipo === 'veiculos') {
+    const placa = prompt('Placa:', item.placa);
+    if (!placa) return;
+    const result = await apiPut(`/veiculos/${id}`, { placa: placa.toUpperCase(), tipo: prompt('Tipo:', item.tipo||'') || null, obs: prompt('Obs:', item.obs||'') || null });
+    if (result) { Object.assign(item, result); const v = await apiGet('/veiculos'); if (v) DATA.veiculos = v; renderContent(); }
+  }
+};
+
+window.verDbCredentials = async function() {
+  const data = await apiGet('/me/db-credentials');
+  if (!data) { alert('Credenciais não configuradas ou acesso negado'); return; }
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">🔌 Conexão PostgreSQL</div>
+      <div class="warning-box">⚠️ Use com responsabilidade. Estas credenciais dão acesso externo direto ao banco de dados da sua transportadora.</div>
+      <div class="info-grid">
+        <div><label>Host</label><span>${data.host}</span></div>
+        <div><label>Porta</label><span>${data.port}</span></div>
+        <div><label>Database</label><span>${data.database}</span></div>
+        <div><label>Usuário</label><span>${data.user}</span></div>
+        <div><label>Senha</label><span id="pw-show">●●●●●●●●●●●●</span></div>
+      </div>
+      <button class="btn btn-sm btn-primary" onclick="document.getElementById('pw-show').textContent = document.getElementById('pw-show').textContent === '●●●●●●●●●●●●' ? '${data.password}' : '●●●●●●●●●●●●'">Mostrar/Ocultar Senha</button>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Fechar</button></div>
+    </div>
+  `);
+};
+
+// ==================== ARQUIVO ====================
+function renderArquivo() {
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📁 Upload de Arquivo</div></div>
+      <div class="drop-area" onclick="document.getElementById('file-input').click()">
+        📂 Clique para selecionar arquivo CSV/XLSX/XML<br><small>Máx 10MB</small>
+        <input type="file" id="file-input" style="display:none" onchange="uploadArquivo(this)">
+      </div>
+      <div id="upload-status" style="margin-top:12px"></div>
+    </div>
+  `;
+}
+
+window.uploadArquivo = async function(input) {
+  if (!input.files[0]) return;
+  const formData = new FormData();
+  formData.append('arquivo', input.files[0]);
+  formData.append('nome', input.files[0].name);
+  const el = document.getElementById('upload-status');
+  el.innerHTML = '<span class="badge badge-info">⏳ Enviando...</span>';
+  try {
+    const res = await fetch(`${API}/upload`, { method: 'POST', headers: { 'Authorization': `Bearer ${getToken()}` }, body: formData });
+    el.innerHTML = res.ok ? '<span class="badge badge-success">✅ Arquivo enviado</span>' : '<span class="badge badge-danger">❌ Erro</span>';
+  } catch { el.innerHTML = '<span class="badge badge-danger">❌ Erro de conexão</span>'; }
+  input.value = '';
+};
+
+// ==================== UTILS ====================
+window.showModal = function(html) {
+  const root = document.getElementById('modal-root');
+  if (root) root.innerHTML = `<div class="modal-overlay" onclick="closeModalOutside(event)">${html}</div>`;
+};
+
+window.closeModal = function() {
+  const root = document.getElementById('modal-root');
+  if (root) root.innerHTML = '';
+  renderContent();
+};
+
+window.closeModalOutside = function(e) {
+  if (e.target.classList.contains('modal-overlay')) closeModal();
+};
+
+window.handleLogout = function() {
+  clearAuth();
+  render();
+};
+
+// ==================== INIT ====================
+render();

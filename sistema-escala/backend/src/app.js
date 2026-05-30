@@ -1,0 +1,1111 @@
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import { query } from './config/database.js';
+import { gerarToken, authMiddleware, requireRole } from './middleware/auth.js';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
+import multer from 'multer';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// ==================== ROTAS PÚBLICAS ====================
+
+// Verificar se já existe SaaS instalado
+app.get('/api/status', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT id FROM saas_owner LIMIT 1');
+    const instalado = rows.length > 0;
+    res.json({ instalado });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao verificar status' });
+  }
+});
+
+// Instalação inicial do SaaS
+app.post('/api/install', async (req, res) => {
+  const { empresa, cnpj, email, telefone, email_recuperacao, senha } = req.body;
+  if (!empresa || !cnpj || !email || !email_recuperacao || !senha) {
+    return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
+  }
+
+  try {
+    const { rows: existentes } = await query('SELECT id FROM saas_owner LIMIT 1');
+    if (existentes.length > 0) {
+      return res.status(400).json({ error: 'SaaS já instalado' });
+    }
+
+    const senha_hash = await bcrypt.hash(senha, 10);
+    await query(
+      `INSERT INTO saas_owner (empresa, cnpj, email, telefone, email_recuperacao, senha_hash)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [empresa, cnpj, email, telefone || null, email_recuperacao, senha_hash]
+    );
+
+    const token = gerarToken({ id: 0, funcao: 'saas_owner', email });
+    res.json({ token, message: 'SaaS instalado com sucesso' });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'CNPJ ou email já cadastrado' });
+    }
+    console.error('Erro na instalação:', err);
+    res.status(500).json({ error: 'Erro interno ao instalar' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, senha } = req.body;
+  if (!email || !senha) {
+    return res.status(400).json({ error: 'Email e senha obrigatórios' });
+  }
+
+  try {
+    // Tenta como SaaS owner
+    const { rows: saas } = await query('SELECT * FROM saas_owner WHERE email = $1', [email]);
+    if (saas.length > 0) {
+      const valido = await bcrypt.compare(senha, saas[0].senha_hash);
+      if (!valido) return res.status(401).json({ error: 'Senha inválida' });
+
+      const token = gerarToken({ id: saas[0].id, funcao: 'saas_owner', email: saas[0].email });
+      return res.json({ token, user: { nome: saas[0].empresa, email: saas[0].email, funcao: 'saas_owner' } });
+    }
+
+    // Tenta como usuário de transportadora
+    const { rows: usuarios } = await query(
+      `SELECT u.*, t.nome as transportadora_nome, t.cod_transp
+       FROM usuarios u
+       JOIN transportadoras t ON t.id = u.transportadora_id
+       WHERE u.email = $1 AND u.ativo = true`, [email]
+    );
+    if (usuarios.length > 0) {
+      const u = usuarios[0];
+      const valido = await bcrypt.compare(senha, u.senha_hash);
+      if (!valido) return res.status(401).json({ error: 'Senha inválida' });
+
+      const token = gerarToken({
+        id: u.id,
+        transportadora_id: u.transportadora_id,
+        funcao: u.funcao,
+        email: u.email
+      });
+
+      return res.json({
+        token,
+        primeiro_acesso: u.primeiro_acesso,
+        user: {
+          nome: u.nome,
+          email: u.email,
+          funcao: u.funcao,
+          transportadora: u.transportadora_nome,
+          cod_transp: u.cod_transp
+        }
+      });
+    }
+
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  } catch (err) {
+    console.error('Erro no login:', err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// Primeiro acesso - trocar senha
+app.post('/api/auth/primeiro-acesso', authMiddleware, async (req, res) => {
+  const { senha } = req.body;
+  if (!senha || senha.length < 6) {
+    return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+  }
+  try {
+    const senha_hash = await bcrypt.hash(senha, 10);
+    await query(
+      'UPDATE usuarios SET senha_hash = $1, primeiro_acesso = false WHERE id = $2',
+      [senha_hash, req.user.id]
+    );
+    res.json({ message: 'Senha alterada com sucesso' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao alterar senha' });
+  }
+});
+
+// ==================== ROTAS DO SAAS OWNER ====================
+
+// Listar transportadoras
+app.get('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, cod_transp, nome, cnpj, email, telefone, ativo,
+              to_char(created_at, 'YYYY-MM-DD') as created_at
+       FROM transportadoras ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao listar transportadoras' });
+  }
+});
+
+// Cadastrar transportadora
+app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  const { cod_transp, nome, cnpj, email, telefone, endereco } = req.body;
+  if (!cod_transp || !nome || !cnpj || !email) {
+    return res.status(400).json({ error: 'Preencha cod_transp, nome, CNPJ e email' });
+  }
+
+  try {
+    // Cria a transportadora
+    const { rows: transp } = await query(
+      `INSERT INTO transportadoras (cod_transp, nome, cnpj, email, telefone, endereco)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [cod_transp, nome, cnpj, email, telefone || null, endereco || null]
+    );
+    const transpId = transp[0].id;
+
+    // Gera senha aleatória para o master
+    const senhaTemporaria = crypto.randomBytes(4).toString('hex') + 'A1@';
+    const senha_hash = await bcrypt.hash(senhaTemporaria, 10);
+
+    // Cria usuário master
+    await query(
+      `INSERT INTO usuarios (transportadora_id, nome, email, senha_hash, funcao, primeiro_acesso)
+       VALUES ($1, $2, $3, $4, 'master', true)`,
+      [transpId, nome, email, senha_hash]
+    );
+
+    // Cria usuário PostgreSQL externo
+    const dbUserExt = `ext_${cod_transp.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    const dbPassExt = crypto.randomBytes(16).toString('hex');
+
+    try {
+      await query(`CREATE ROLE ${dbUserExt} WITH LOGIN PASSWORD '${dbPassExt}'`);
+      await query(`GRANT CONNECT ON DATABASE escala_db TO ${dbUserExt}`);
+      await query(`GRANT USAGE ON SCHEMA public TO ${dbUserExt}`);
+      await query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${dbUserExt}`);
+    } catch (pgErr) {
+      console.warn('Aviso ao criar role PG (pode já existir):', pgErr.message);
+    }
+
+    // Salva credenciais externas
+    const dbCreds = JSON.stringify({ user: dbUserExt, password: dbPassExt });
+    await query(
+      'UPDATE transportadoras SET db_user_ext = $1, db_pass_enc = $2 WHERE id = $3',
+      [dbUserExt, dbCreds, transpId]
+    );
+
+    res.json({
+      message: 'Transportadora cadastrada com sucesso',
+      transportadora_id: transpId,
+      email_acesso: email,
+      senha_temporaria: senhaTemporaria,
+      db_externo: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || '5432',
+        database: process.env.DB_NAME || 'escala_db',
+        user: dbUserExt,
+        password: dbPassExt
+      }
+    });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'CNPJ ou código de transportadora já existe' });
+    }
+    console.error('Erro ao cadastrar transportadora:', err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// Detalhes da transportadora (com credenciais PG)
+app.get('/api/admin/transportadoras/:id', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, cod_transp, nome, cnpj, email, telefone, endereco, ativo,
+              db_user_ext, db_pass_enc,
+              to_char(created_at, 'YYYY-MM-DD') as created_at
+       FROM transportadoras WHERE id = $1`, [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
+
+    const t = rows[0];
+    let dbCreds = null;
+    if (t.db_pass_enc) {
+      try { dbCreds = JSON.parse(t.db_pass_enc); } catch { }
+    }
+
+    res.json({
+      ...t,
+      db_pass_enc: undefined,
+      db_externo: dbCreds ? {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || '5432',
+        database: process.env.DB_NAME || 'escala_db',
+        user: dbCreds.user,
+        password: dbCreds.password
+      } : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar transportadora' });
+  }
+});
+
+// Regenerar senha do master de uma transportadora
+app.post('/api/admin/transportadoras/:id/regen-senha', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query('SELECT id, email FROM transportadoras WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
+
+    const novaSenha = crypto.randomBytes(4).toString('hex') + 'A1@';
+    const senha_hash = await bcrypt.hash(novaSenha, 10);
+
+    await query(
+      'UPDATE usuarios SET senha_hash = $1, primeiro_acesso = true WHERE transportadora_id = $2 AND funcao = $3',
+      [senha_hash, req.params.id, 'master']
+    );
+
+    res.json({ message: 'Senha regenerada', email: rows[0].email, senha_temporaria: novaSenha });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao regenerar senha' });
+  }
+});
+
+// Regenerar senha do PostgreSQL externo
+app.post('/api/admin/transportadoras/:id/regen-db-password', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query('SELECT db_user_ext FROM transportadoras WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
+    if (!rows[0].db_user_ext) return res.status(400).json({ error: 'Usuário externo não configurado' });
+
+    const dbUserExt = rows[0].db_user_ext;
+    const dbPassExt = crypto.randomBytes(16).toString('hex');
+
+    try {
+      await query(`ALTER ROLE ${dbUserExt} WITH PASSWORD '${dbPassExt}'`);
+    } catch (pgErr) {
+      return res.status(500).json({ error: 'Erro ao alterar senha no PostgreSQL: ' + pgErr.message });
+    }
+
+    const dbCreds = JSON.stringify({ user: dbUserExt, password: dbPassExt });
+    await query('UPDATE transportadoras SET db_pass_enc = $1 WHERE id = $2', [dbCreds, req.params.id]);
+
+    res.json({
+      message: 'Senha do PostgreSQL regenerada',
+      db_externo: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || '5432',
+        database: process.env.DB_NAME || 'escala_db',
+        user: dbUserExt,
+        password: dbPassExt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ==================== ROTAS DA TRANSPORTADORA (cadastros) ====================
+
+function transportadoraFilter(req, res, next) {
+  if (!req.user.transportadora_id) {
+    return res.status(403).json({ error: 'Acesso apenas para usuários de transportadora' });
+  }
+  next();
+}
+
+// --- Motoristas ---
+app.get('/api/motoristas', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT * FROM motoristas WHERE transportadora_id = $1 ORDER BY nome',
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar motoristas' }); }
+});
+
+app.post('/api/motoristas', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { nome, cpf, cnh, telefone } = req.body;
+  if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
+  try {
+    const { rows } = await query(
+      `INSERT INTO motoristas (transportadora_id, nome, cpf, cnh, telefone)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.user.transportadora_id, nome, cpf || null, cnh || null, telefone || null]
+    );
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao criar motorista' }); }
+});
+
+app.put('/api/motoristas/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { nome, cpf, cnh, telefone, ativo } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE motoristas SET nome = COALESCE($1, nome), cpf = COALESCE($2, cpf),
+       cnh = COALESCE($3, cnh), telefone = COALESCE($4, telefone),
+       ativo = COALESCE($5, ativo), updated_at = NOW()
+       WHERE id = $6 AND transportadora_id = $7 RETURNING *`,
+      [nome, cpf, cnh, telefone, ativo, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Motorista não encontrado' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar motorista' }); }
+});
+
+app.delete('/api/motoristas/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rowCount } = await query(
+      'DELETE FROM motoristas WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Motorista não encontrado' });
+    res.json({ message: 'Motorista removido' });
+  } catch (err) { res.status(500).json({ error: 'Erro ao remover motorista' }); }
+});
+
+// --- Ajudantes ---
+app.get('/api/ajudantes', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT * FROM ajudantes WHERE transportadora_id = $1 ORDER BY nome',
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar ajudantes' }); }
+});
+
+app.post('/api/ajudantes', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { nome, cpf, telefone } = req.body;
+  if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
+  try {
+    const { rows } = await query(
+      `INSERT INTO ajudantes (transportadora_id, nome, cpf, telefone)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.user.transportadora_id, nome, cpf || null, telefone || null]
+    );
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao criar ajudante' }); }
+});
+
+app.put('/api/ajudantes/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { nome, cpf, telefone, ativo } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE ajudantes SET nome = COALESCE($1, nome), cpf = COALESCE($2, cpf),
+       telefone = COALESCE($3, telefone), ativo = COALESCE($4, ativo), updated_at = NOW()
+       WHERE id = $5 AND transportadora_id = $6 RETURNING *`,
+      [nome, cpf, telefone, ativo, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Ajudante não encontrado' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar ajudante' }); }
+});
+
+app.delete('/api/ajudantes/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rowCount } = await query(
+      'DELETE FROM ajudantes WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Ajudante não encontrado' });
+    res.json({ message: 'Ajudante removido' });
+  } catch (err) { res.status(500).json({ error: 'Erro ao remover ajudante' }); }
+});
+
+// --- Veículos ---
+app.get('/api/veiculos', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT * FROM veiculos WHERE transportadora_id = $1 ORDER BY placa',
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar veículos' }); }
+});
+
+app.post('/api/veiculos', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { placa, tipo, obs } = req.body;
+  if (!placa) return res.status(400).json({ error: 'Placa obrigatória' });
+  try {
+    const { rows } = await query(
+      `INSERT INTO veiculos (transportadora_id, placa, tipo, obs)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.user.transportadora_id, placa.toUpperCase(), tipo || null, obs || null]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Placa já cadastrada' });
+    res.status(500).json({ error: 'Erro ao criar veículo' });
+  }
+});
+
+app.put('/api/veiculos/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { placa, tipo, obs, ativo } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE veiculos SET placa = COALESCE($1, placa), tipo = COALESCE($2, tipo),
+       obs = COALESCE($3, obs), ativo = COALESCE($4, ativo), updated_at = NOW()
+       WHERE id = $5 AND transportadora_id = $6 RETURNING *`,
+      [placa ? placa.toUpperCase() : null, tipo, obs, ativo, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Veículo não encontrado' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar veículo' }); }
+});
+
+app.delete('/api/veiculos/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rowCount } = await query(
+      'DELETE FROM veiculos WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Veículo não encontrado' });
+    res.json({ message: 'Veículo removido' });
+  } catch (err) { res.status(500).json({ error: 'Erro ao remover veículo' }); }
+});
+
+// --- Usuários da transportadora (master pode gerenciar) ---
+app.get('/api/usuarios', authMiddleware, transportadoraFilter, async (req, res) => {
+  if (!['master', 'admin'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+  try {
+    const { rows } = await query(
+      `SELECT id, nome, email, funcao, ativo, primeiro_acesso,
+              to_char(created_at, 'YYYY-MM-DD') as created_at
+       FROM usuarios WHERE transportadora_id = $1 ORDER BY created_at DESC`,
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar usuários' }); }
+});
+
+app.post('/api/usuarios', authMiddleware, transportadoraFilter, async (req, res) => {
+  if (!['master', 'admin'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+  const { nome, email, funcao } = req.body;
+  if (!nome || !email || !funcao) {
+    return res.status(400).json({ error: 'Nome, email e função obrigatórios' });
+  }
+  if (!['admin', 'operador'].includes(funcao)) {
+    return res.status(400).json({ error: 'Função inválida' });
+  }
+  try {
+    const senhaTemporaria = crypto.randomBytes(4).toString('hex') + 'A1@';
+    const senha_hash = await bcrypt.hash(senhaTemporaria, 10);
+    const { rows } = await query(
+      `INSERT INTO usuarios (transportadora_id, nome, email, senha_hash, funcao, primeiro_acesso)
+       VALUES ($1, $2, $3, $4, $5, true) RETURNING id, nome, email, funcao`,
+      [req.user.transportadora_id, nome, email, senha_hash, funcao]
+    );
+    res.json({ ...rows[0], senha_temporaria: senhaTemporaria });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Email já cadastrado' });
+    res.status(500).json({ error: 'Erro ao criar usuário' });
+  }
+});
+
+app.put('/api/usuarios/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  if (!['master', 'admin'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+  const { nome, funcao, ativo } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE usuarios SET nome = COALESCE($1, nome), funcao = COALESCE($2, funcao),
+       ativo = COALESCE($3, ativo), updated_at = NOW()
+       WHERE id = $4 AND transportadora_id = $5 RETURNING id, nome, email, funcao, ativo`,
+      [nome, funcao, ativo, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar usuário' }); }
+});
+
+// ==================== ROTAS OPERACIONAIS ====================
+
+app.get('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim } = req.query;
+  let sql = 'SELECT * FROM cargas WHERE transportadora_id = $1';
+  const params = [req.user.transportadora_id];
+  let idx = 2;
+  if (dataInicio) { sql += ` AND data_entrega >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND data_entrega <= $${idx}`; params.push(dataFim); idx++; }
+  sql += ' ORDER BY data_entrega DESC';
+  try {
+    const { rows } = await query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar cargas' }); }
+});
+
+app.post('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao } = req.body;
+  try {
+    const { rows } = await query(
+      `INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [req.user.transportadora_id, carga, data_entrega, qtd_entg || 0, cub, placa, rota, regiao_nome, regiao]
+    );
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao criar carga' }); }
+});
+
+app.put('/api/cargas/:id/placa', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { placa } = req.body;
+  try {
+    const { rows } = await query(
+      'UPDATE cargas SET placa = $1, updated_at = NOW() WHERE id = $2 AND transportadora_id = $3 RETURNING *',
+      [placa, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar placa' }); }
+});
+
+app.put('/api/cargas/:id/confirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'UPDATE cargas SET confirma = true, updated_at = NOW() WHERE id = $1 AND transportadora_id = $2 RETURNING *',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar carga' }); }
+});
+
+app.put('/api/cargas/:id/desconfirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE cargas SET confirma = false, confirma_equipe = false,
+       motorista = null, ajudante_01 = null, ajudante_02 = null, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao desconfirmar carga' }); }
+});
+
+app.put('/api/cargas/:id/equipe', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { motorista, ajudante_01, ajudante_02 } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE cargas SET motorista = $1, ajudante_01 = $2, ajudante_02 = $3,
+       confirma_equipe = true, updated_at = NOW()
+       WHERE id = $4 AND transportadora_id = $5 RETURNING *`,
+      [motorista, ajudante_01 || null, ajudante_02 || null, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar equipe' }); }
+});
+
+app.put('/api/cargas/:id/desfazer-equipe', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE cargas SET confirma_equipe = false, motorista = null,
+       ajudante_01 = null, ajudante_02 = null, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao desfazer equipe' }); }
+});
+
+// --- Entregas ---
+app.get('/api/entregas', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim, carga, placa } = req.query;
+  let sql = 'SELECT e.* FROM entregas e WHERE e.transportadora_id = $1';
+  const params = [req.user.transportadora_id];
+  let idx = 2;
+  if (dataInicio) { sql += ` AND e.data_nf >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND e.data_nf <= $${idx}`; params.push(dataFim); idx++; }
+  if (carga) { sql += ` AND e.fc = $${idx}`; params.push(carga); idx++; }
+  if (placa) { sql += ` AND e.fc IN (SELECT carga FROM cargas WHERE transportadora_id = $1 AND placa = $${idx})`; params.push(placa); idx++; }
+  sql += ' ORDER BY e.data_nf DESC';
+  try {
+    const { rows } = await query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar entregas' }); }
+});
+
+app.put('/api/entregas/:id/confirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { status } = req.body;
+  try {
+    const { rows } = await query(
+      'UPDATE entregas SET confirma_entrega = $1, updated_at = NOW() WHERE id = $2 AND transportadora_id = $3 RETURNING *',
+      [status, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar entrega' }); }
+});
+
+app.post('/api/entregas/:id/insucesso', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { motivo, reentrega, devolucao } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE entregas SET confirma_entrega = false, motivo_insucesso = $1,
+       reentrega = $2, devolucao = $3, updated_at = NOW()
+       WHERE id = $4 AND transportadora_id = $5 RETURNING *`,
+      [motivo, reentrega, devolucao, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada' });
+    // Se devolucao for true, insere em em_devolucao
+    if (devolucao) {
+      const e = rows[0];
+      await query(
+        `INSERT INTO em_devolucao (transportadora_id, fc, nf, cliente, bairro, motivo_insucesso)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [req.user.transportadora_id, e.fc, e.nf, e.cliente, e.bairro, motivo]
+      );
+    }
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao registrar insucesso' }); }
+});
+
+app.put('/api/entregas/:id/reabrir', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE entregas SET confirma_entrega = null, motivo_insucesso = null,
+       reentrega = null, devolucao = null, status_reentrega = null, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao reabrir entrega' }); }
+});
+
+app.put('/api/entregas/:id/reentrega', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { status } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE entregas SET status_reentrega = $1, updated_at = NOW()
+       WHERE id = $2 AND transportadora_id = $3 RETURNING *`,
+      [status, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar reentrega' }); }
+});
+
+// --- Reversas ---
+app.get('/api/reversas', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim } = req.query;
+  let sql = 'SELECT * FROM reversas WHERE transportadora_id = $1';
+  const params = [req.user.transportadora_id];
+  let idx = 2;
+  if (dataInicio) { sql += ` AND data_nf >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND data_nf <= $${idx}`; params.push(dataFim); idx++; }
+  sql += ' ORDER BY data_nf DESC';
+  try {
+    const { rows } = await query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar reversas' }); }
+});
+
+app.put('/api/reversas/:id/confirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { status } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE reversas SET confirma_entrega = $1, updated_at = NOW()
+       WHERE id = $2 AND transportadora_id = $3 RETURNING *`,
+      [status, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar coleta' }); }
+});
+
+app.post('/api/reversas/:id/insucesso', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { motivo, reentrega, devolucao } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE reversas SET confirma_entrega = false, motivo_insucesso = $1,
+       reentrega = $2, devolucao = $3, updated_at = NOW()
+       WHERE id = $4 AND transportadora_id = $5 RETURNING *`,
+      [motivo, reentrega, devolucao, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao registrar insucesso' }); }
+});
+
+app.put('/api/reversas/:id/reabrir', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE reversas SET confirma_entrega = null, motivo_insucesso = null,
+       reentrega = null, devolucao = null, status_reentrega = null, status_devolucao = null, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao reabrir' }); }
+});
+
+app.put('/api/reversas/:id/recoleta', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { status } = req.body;
+  try {
+    const { rows } = await query(
+      `UPDATE reversas SET status_devolucao = $1, updated_at = NOW()
+       WHERE id = $2 AND transportadora_id = $3 RETURNING *`,
+      [status, req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar recoleta' }); }
+});
+
+app.put('/api/reversas/:id/devolucao-cd', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE reversas SET status_reentrega = true, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar devolução ao CD' }); }
+});
+
+// --- Devoluções ---
+app.get('/api/devolucoes', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim } = req.query;
+  let sql = 'SELECT * FROM em_devolucao WHERE transportadora_id = $1';
+  const params = [req.user.transportadora_id];
+  let idx = 2;
+  if (dataInicio) { sql += ` AND created_at::date >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND created_at::date <= $${idx}`; params.push(dataFim); idx++; }
+  sql += ' ORDER BY created_at DESC';
+  try {
+    const { rows } = await query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar devoluções' }); }
+});
+
+app.put('/api/devolucoes/:id/confirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE em_devolucao SET status_devolucao = true, updated_at = NOW()
+       WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Devolução não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao confirmar devolução' }); }
+});
+
+// ==================== INDICADORES ====================
+app.get('/api/indicadores/resumo', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim } = req.query;
+  try {
+    const tid = req.user.transportadora_id;
+    const result = await query('SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1', [tid]);
+    const total = parseInt(result.rows[0].total);
+
+    const ok = await query(
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = true AND (reentrega IS NULL OR reentrega = false)`, [tid]
+    );
+    const entregues = parseInt(ok.rows[0].total);
+
+    const ins = await query(
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = false AND (reentrega IS NULL OR reentrega = false)`, [tid]
+    );
+    const insucessos = parseInt(ins.rows[0].total);
+
+    const reent = await query(
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND reentrega = true AND status_reentrega IS NULL`, [tid]
+    );
+    const reentregasPend = parseInt(reent.rows[0].total);
+
+    res.json({ total, entregues, insucessos, reentregasPend, taxaSucesso: total > 0 ? Math.round(entregues / total * 100) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar indicadores' });
+  }
+});
+
+app.get('/api/indicadores/tendencia', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { dataInicio, dataFim } = req.query;
+  try {
+    const { rows } = await query(
+      `SELECT data_nf, COUNT(*) as total,
+              SUM(CASE WHEN confirma_entrega = true THEN 1 ELSE 0 END) as entregues,
+              SUM(CASE WHEN confirma_entrega = false THEN 1 ELSE 0 END) as insucessos
+       FROM entregas
+       WHERE transportadora_id = $1 AND data_nf BETWEEN $2 AND $3
+       GROUP BY data_nf ORDER BY data_nf`,
+      [req.user.transportadora_id, dataInicio || '2020-01-01', dataFim || '2099-12-31']
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar tendência' });
+  }
+});
+
+app.get('/api/indicadores/motivos', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT motivo_insucesso, COUNT(*) as total
+       FROM entregas
+       WHERE transportadora_id = $1 AND motivo_insucesso IS NOT NULL
+       GROUP BY motivo_insucesso ORDER BY total DESC LIMIT 10`,
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar motivos' });
+  }
+});
+
+app.get('/api/indicadores/top-motoristas', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT c.motorista, c.placa, COUNT(e.id) as entregas,
+              SUM(CASE WHEN e.confirma_entrega = true THEN 1 ELSE 0 END) as sucesso
+       FROM cargas c
+       JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+       WHERE c.transportadora_id = $1 AND c.motorista IS NOT NULL
+       GROUP BY c.motorista, c.placa
+       ORDER BY entregas DESC LIMIT 10`,
+      [req.user.transportadora_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar ranking' });
+  }
+});
+
+// ==================== RELATÓRIOS ====================
+async function gerarCSV(rows, filename, res) {
+  if (rows.length === 0) {
+    return res.status(404).json({ error: 'Nenhum dado encontrado' });
+  }
+  const headers = Object.keys(rows[0]);
+  let csv = headers.join(';') + '\n';
+  for (const row of rows) {
+    csv += headers.map(h => {
+      const val = row[h];
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      return str.includes(';') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
+    }).join(';') + '\n';
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+  res.send('\uFEFF' + csv);
+}
+
+async function gerarXLSX(rows, filename, res) {
+  if (rows.length === 0) return res.status(404).json({ error: 'Nenhum dado encontrado' });
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Relatório');
+  const headers = Object.keys(rows[0]);
+  sheet.addRow(headers);
+  for (const row of rows) {
+    sheet.addRow(headers.map(h => row[h]));
+  }
+  sheet.getRow(1).font = { bold: true };
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+  await workbook.xlsx.write(res);
+  res.end();
+}
+
+async function gerarPDF(title, rows, headers, res) {
+  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${title}.pdf"`);
+  doc.pipe(res);
+  doc.fontSize(16).text(title, { align: 'center' });
+  doc.moveDown();
+
+  if (rows.length === 0) {
+    doc.fontSize(12).text('Nenhum dado encontrado.');
+  } else {
+    const cols = headers || Object.keys(rows[0]);
+    const pageWidth = doc.page.width - 60;
+    const colWidth = pageWidth / cols.length;
+
+    doc.fontSize(8).font('Helvetica-Bold');
+    let y = doc.y;
+    for (let i = 0; i < cols.length; i++) {
+      doc.text(cols[i], 30 + i * colWidth, y, { width: colWidth });
+    }
+    doc.moveDown(0.5);
+    doc.font('Helvetica');
+
+    for (const row of rows) {
+      y = doc.y;
+      if (y > doc.page.height - 60) doc.addPage();
+      for (let i = 0; i < cols.length; i++) {
+        const val = row[cols[i]];
+        doc.text(val !== null && val !== undefined ? String(val) : '', 30 + i * colWidth, doc.y, { width: colWidth });
+      }
+      doc.moveDown(0.3);
+    }
+  }
+  doc.end();
+}
+
+app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { tipo } = req.params;
+  const { dataInicio, dataFim, formato } = req.query;
+  const fmt = (formato || 'csv').toLowerCase();
+  const tid = req.user.transportadora_id;
+
+  let sql, rows;
+  try {
+    switch (tipo) {
+      case 'entregas':
+        sql = `SELECT e.nf, e.fc as carga, e.cliente, e.bairro, e.data_nf,
+                      CASE WHEN e.confirma_entrega = true THEN 'Entregue'
+                           WHEN e.confirma_entrega = false THEN 'Insucesso'
+                           ELSE 'Pendente' END as status,
+                      e.motivo_insucesso
+               FROM entregas e WHERE e.transportadora_id = $1`;
+        if (dataInicio) sql += ` AND e.data_nf >= '${dataInicio}'`;
+        if (dataFim) sql += ` AND e.data_nf <= '${dataFim}'`;
+        sql += ' ORDER BY e.data_nf DESC';
+        break;
+      case 'insucessos':
+        sql = `SELECT e.nf, e.fc as carga, e.cliente, e.bairro, e.data_nf,
+                      e.motivo_insucesso,
+                      CASE WHEN e.reentrega = true THEN 'Sim' ELSE 'Não' END as reentrega
+               FROM entregas e WHERE e.transportadora_id = $1 AND e.confirma_entrega = false`;
+        if (dataInicio) sql += ` AND e.data_nf >= '${dataInicio}'`;
+        if (dataFim) sql += ` AND e.data_nf <= '${dataFim}'`;
+        sql += ' ORDER BY e.data_nf DESC';
+        break;
+      case 'motoristas':
+        sql = `SELECT c.motorista, c.placa, COUNT(e.id) as entregas,
+                      SUM(CASE WHEN e.confirma_entrega = true THEN 1 ELSE 0 END) as sucesso,
+                      SUM(CASE WHEN e.confirma_entrega = false THEN 1 ELSE 0 END) as insucesso
+               FROM cargas c JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+               WHERE c.transportadora_id = $1 AND c.motorista IS NOT NULL
+               GROUP BY c.motorista, c.placa ORDER BY entregas DESC`;
+        break;
+      case 'reentregas':
+        sql = `SELECT e.nf, e.fc as carga, e.cliente, e.bairro, e.motivo_insucesso,
+                      CASE WHEN e.status_reentrega = true THEN 'Entregue'
+                           WHEN e.status_reentrega = false THEN 'Devolvido'
+                           ELSE 'Aguardando' END as status
+               FROM entregas e WHERE e.transportadora_id = $1 AND e.reentrega = true
+               ORDER BY e.data_nf DESC`;
+        break;
+      case 'devolucoes':
+        sql = `SELECT d.nf, d.fc as carga, d.cliente, d.bairro, d.motivo_insucesso,
+                      CASE WHEN d.status_devolucao = true THEN 'Confirmada' ELSE 'Pendente' END as status
+               FROM em_devolucao d WHERE d.transportadora_id = $1
+               ORDER BY d.created_at DESC`;
+        break;
+      default:
+        return res.status(400).json({ error: 'Tipo de relatório inválido' });
+    }
+
+    const result = await query(sql, [tid]);
+    rows = result.rows;
+
+    if (fmt === 'csv') return gerarCSV(rows, tipo, res);
+    if (fmt === 'xlsx') return gerarXLSX(rows, tipo, res);
+    if (fmt === 'pdf') return gerarPDF('Relatório: ' + tipo, rows, null, res);
+    res.status(400).json({ error: 'Formato inválido. Use csv, xlsx ou pdf' });
+  } catch (err) {
+    console.error('Erro no relatório:', err);
+    res.status(500).json({ error: 'Erro ao gerar relatório' });
+  }
+});
+
+// ==================== FUNCIONÁRIOS (para equipe) ====================
+app.get('/api/funcionarios', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const tid = req.user.transportadora_id;
+    const [mot, aju] = await Promise.all([
+      query(`SELECT id, nome, 'motorista' as funcao FROM motoristas WHERE transportadora_id = $1 AND ativo = true ORDER BY nome`, [tid]),
+      query(`SELECT id, nome, 'ajudante' as funcao FROM ajudantes WHERE transportadora_id = $1 AND ativo = true ORDER BY nome`, [tid])
+    ]);
+    res.json([...mot.rows, ...aju.rows]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao listar funcionários' }); }
+});
+
+// ==================== DADOS DA PRÓPRIA TRANSPORTADORA ====================
+app.get('/api/me/transportadora', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, cod_transp, nome, cnpj, email, telefone FROM transportadoras WHERE id = $1',
+      [req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro' }); }
+});
+
+app.get('/api/me/db-credentials', authMiddleware, transportadoraFilter, async (req, res) => {
+  if (req.user.funcao !== 'master') {
+    return res.status(403).json({ error: 'Apenas o master pode ver credenciais do banco' });
+  }
+  try {
+    const { rows } = await query(
+      'SELECT db_user_ext, db_pass_enc FROM transportadoras WHERE id = $1',
+      [req.user.transportadora_id]
+    );
+    if (rows.length === 0 || !rows[0].db_pass_enc) {
+      return res.status(404).json({ error: 'Credenciais não configuradas' });
+    }
+    const creds = JSON.parse(rows[0].db_pass_enc);
+    res.json({
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || '5432',
+      database: process.env.DB_NAME || 'escala_db',
+      user: creds.user,
+      password: creds.password
+    });
+  } catch (err) { res.status(500).json({ error: 'Erro ao buscar credenciais' }); }
+});
+
+// ==================== UPLOAD DE ARQUIVOS ====================
+const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post('/api/upload', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const { rows } = await query(
+      `INSERT INTO arquivos (transportadora_id, nome_original, caminho, tamanho)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [req.user.transportadora_id, req.file.originalname, req.file.path, req.file.size]
+    );
+    res.json({ message: 'Arquivo enviado', id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao salvar arquivo' });
+  }
+});
+
+// ==================== FUNCIONÁRIOS (para compatibilidade com frontend atual) ====================
+app.get('/api/data', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const tid = req.user.transportadora_id;
+    const { dataInicio, dataFim } = req.query;
+    const cg = await query(
+      'SELECT * FROM cargas WHERE transportadora_id = $1 ORDER BY data_entrega DESC LIMIT 500',
+      [tid]
+    );
+    res.json({ data: cg.rows });
+  } catch (err) { res.status(500).json({ error: 'Erro' }); }
+});
+
+// ==================== STATIC ====================
+app.use(express.static(path.join(__dirname, '../../frontend/public')));
+
+// ==================== START ====================
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Backend rodando na porta ${PORT}`);
+});

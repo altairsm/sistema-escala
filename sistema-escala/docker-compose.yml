@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: escala-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escala_db
+      POSTGRES_USER: escala_admin
+      POSTGRES_PASSWORD: ${DB_ROOT_PASSWORD:-changeme_root}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - escala-network
+
+  backend:
+    build: ./backend
+    container_name: escala-backend
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: escala_db
+      DB_USER: escala_admin
+      DB_PASSWORD: ${DB_ROOT_PASSWORD:-changeme_root}
+      JWT_SECRET: ${JWT_SECRET:-changeme_jwt_secret}
+      PORT: 3000
+      APP_URL: ${APP_URL:-http://localhost}
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+    ports:
+      - "3000:3000"
+    networks:
+      - escala-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: escala-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./frontend/public:/usr/share/nginx/html
+    networks:
+      - escala-network
+
+networks:
+  escala-network:
+    driver: bridge
+
+volumes:
+  pgdata:
