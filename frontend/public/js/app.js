@@ -313,7 +313,7 @@ function renderSaaSPage(root) {
       <div class="header">
         <div class="header-logo">🏠</div>
         <div class="header-info">
-          <div class="header-title">Painel SaaS — Gestão de Escala</div>
+          <div class="header-title">Painel SaaS — Gestão de Escala <span id="saas-version" style="font-size:0.65rem;color:var(--gray);font-weight:400"></span></div>
           <div class="header-sub">${getUser().nome}</div>
         </div>
         <div class="header-actions">
@@ -335,11 +335,17 @@ async function carregarTransportadoras() {
   const el = document.getElementById('saas-content');
   if (!data) { el.innerHTML = '<div class="empty-state">Erro ao carregar</div>'; return; }
 
-  // Carrega config SMTP e perfil do proprietário
-  const [smtpConfig, ownerProfile] = await Promise.all([
+  // Carrega config SMTP, perfil do proprietário e versão
+  const [smtpConfig, ownerProfile, versionData] = await Promise.all([
     apiGet('/smtp-config'),
-    apiGet('/owner/profile')
+    apiGet('/owner/profile'),
+    apiGet('/version'),
   ]);
+
+  const versionEl = document.getElementById('saas-version');
+  if (versionEl && versionData && versionData.commit) {
+    versionEl.textContent = `v ${versionData.commit}`;
+  }
 
   el.innerHTML = `
     <div class="card">

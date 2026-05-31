@@ -37,6 +37,14 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+// Versão do sistema (git commit)
+app.get('/api/version', (req, res) => {
+  res.json({
+    commit: process.env.GIT_COMMIT || 'unknown',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Instalação inicial do SaaS
 app.post('/api/install', async (req, res) => {
   const { empresa, cnpj, email, telefone, email_recuperacao, senha, smtp, reset } = req.body;

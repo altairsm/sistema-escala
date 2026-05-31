@@ -20,7 +20,10 @@ services:
       - escala-network
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: escala-backend
     restart: unless-stopped
     depends_on:

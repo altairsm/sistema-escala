@@ -1,5 +1,8 @@
 FROM node:20-alpine
 
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
