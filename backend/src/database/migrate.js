@@ -5,8 +5,25 @@ import pool from '../config/database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function migrate() {
-  const client = await pool.connect();
+  let client;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      client = await pool.connect();
+      break;
+    } catch (err) {
+      console.log(`  [RETRY ${attempt}/10] Aguardando banco de dados...`);
+      await sleep(3000);
+    }
+  }
+  if (!client) {
+    console.error('Erro: não foi possível conectar ao banco após 10 tentativas');
+    process.exit(1);
+  }
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS migrations (
