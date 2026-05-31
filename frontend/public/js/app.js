@@ -104,15 +104,7 @@ function renderLoginPage(root) {
 
   // Check if installed
   apiGet('/status').then(s => {
-    if (s && s.instalado) {
-      document.getElementById('install-link-area').innerHTML = `
-        <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
-        <div style="font-size:0.8rem;color:var(--gray);margin-bottom:8px">Sistema já instalado</div>
-        <div style="display:flex;gap:8px;justify-content:center">
-          <button class="btn btn-sm btn-primary" onclick="document.getElementById('login-email').focus()">🔑 Fazer Login</button>
-          <button class="btn btn-sm btn-danger" onclick="checkInstall(true)">⚠️ Instalar do zero</button>
-        </div>`;
-    } else if (s && !s.instalado) {
+    if (s && !s.instalado) {
       document.getElementById('install-link-area').innerHTML =
         '<a onclick="checkInstall()">Primeiro acesso? Instalar sistema</a>';
     }
@@ -399,6 +391,17 @@ async function carregarTransportadoras() {
         `).join('')}</tbody>
       </table></div>`}
     </div>
+
+    <div class="card" style="border:2px solid var(--red)">
+      <div class="card-header">
+        <div class="card-title" style="color:var(--red)">⚠️ Zona de Perigo</div>
+      </div>
+      <p style="font-size:0.8rem;color:var(--gray);margin-bottom:16px">
+        Isso apagará <strong>TODOS</strong> os dados do sistema e reinstalará do zero.
+        Transportadoras, usuários, cargas, entregas — tudo será perdido permanentemente.
+      </p>
+      <button class="btn btn-danger" onclick="showResetInstall()">🔄 Reset do Sistema</button>
+    </div>
   `;
 }
 
@@ -633,6 +636,153 @@ window.excluirTransportadora = async function(id, codTransp) {
     carregarTransportadoras();
   } else {
     alert((result && result.error) || 'Erro ao excluir transportadora');
+  }
+};
+
+// ==================== RESET DO SISTEMA ====================
+window.showResetInstall = function() {
+  showModal(`
+    <div class="modal" style="width:560px">
+      <div class="modal-title" style="color:var(--red)">⚠️ Reset do Sistema</div>
+      <p style="font-size:0.8rem;margin-bottom:16px">
+        Isso apagará <strong>TODOS</strong> os dados do sistema e reinstalará do zero.
+        Transportadoras, usuários, cargas, entregas, configurações — tudo será perdido.
+      </p>
+
+      <div id="reset-error" class="error"></div>
+
+      <div class="modal-row">
+        <label>Nome da Empresa *</label>
+        <input id="reset-empresa" placeholder="Minha Transportadora SaaS">
+      </div>
+      <div class="modal-row">
+        <label>CNPJ *</label>
+        <input id="reset-cnpj" placeholder="00.000.000/0001-00">
+      </div>
+      <div class="modal-row">
+        <label>Email do Proprietário *</label>
+        <input type="email" id="reset-email" placeholder="admin@meusaas.com">
+      </div>
+      <div class="modal-row">
+        <label>Telefone</label>
+        <input id="reset-telefone" placeholder="(11) 99999-9999">
+      </div>
+      <div class="modal-row">
+        <label>Email para Recuperação de Senha *</label>
+        <input type="email" id="reset-email-rec" placeholder="recuperacao@meusaas.com">
+      </div>
+      <div class="modal-row">
+        <label>Senha Mestre *</label>
+        <input type="password" id="reset-senha" placeholder="Mínimo 6 caracteres">
+      </div>
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
+      <p style="font-size:0.75rem;color:var(--gray);margin-bottom:12px">✉️ Configuração SMTP (obrigatório para envio de emails)</p>
+
+      <div class="modal-row">
+        <label>Email Remetente *</label>
+        <input type="email" id="reset-sender-email" placeholder="gestao@seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Nome do Remetente</label>
+        <input id="reset-sender-name" placeholder="Gestão de Escala">
+      </div>
+      <div class="modal-row">
+        <label>Domínio do Email *</label>
+        <input id="reset-smtp-domain" placeholder="seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Host SMTP *</label>
+        <input id="reset-smtp-address" placeholder="smtp.titan.email">
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Porta</label>
+          <input type="number" id="reset-smtp-port" value="465">
+        </div>
+        <div style="flex:1;display:flex;align-items:flex-end;padding-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="reset-smtp-ssl" checked> SSL
+          </label>
+        </div>
+      </div>
+      <div class="modal-row">
+        <label>Usuário SMTP *</label>
+        <input id="reset-smtp-username" placeholder="gestao@seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Senha SMTP *</label>
+        <input type="password" id="reset-smtp-password" placeholder="Senha do SMTP">
+      </div>
+      <div class="modal-row">
+        <label>Domínio de Email de Entrada (opcional)</label>
+        <input id="reset-inbound-domain" placeholder="seudominio.com.br">
+      </div>
+
+      <hr style="margin:16px 0;border:none;border-top:2px solid var(--red)">
+      <div class="modal-row">
+        <label style="color:var(--red);font-weight:700">Confirmação: digite o nome da empresa para confirmar *</label>
+        <input id="reset-confirmacao" placeholder="Digite o nome da empresa exatamente como acima">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="handleResetInstall()">⚠️ Apagar tudo e Instalar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.handleResetInstall = async function() {
+  const empresa = document.getElementById('reset-empresa').value.trim();
+  const confirmacao = document.getElementById('reset-confirmacao').value.trim();
+  const errEl = document.getElementById('reset-error');
+  if (!errEl) return;
+
+  if (!empresa) { errEl.textContent = 'Preencha o nome da empresa'; return; }
+  if (confirmacao !== empresa) { errEl.textContent = 'Digite o nome da empresa exatamente como no campo acima para confirmar'; return; }
+
+  const data = {
+    empresa,
+    cnpj: document.getElementById('reset-cnpj').value.trim(),
+    email: document.getElementById('reset-email').value.trim(),
+    telefone: document.getElementById('reset-telefone').value.trim(),
+    email_recuperacao: document.getElementById('reset-email-rec').value.trim(),
+    senha: document.getElementById('reset-senha').value,
+    reset: true,
+    smtp: {
+      sender_email: document.getElementById('reset-sender-email').value.trim(),
+      sender_name: document.getElementById('reset-sender-name').value.trim(),
+      smtp_domain: document.getElementById('reset-smtp-domain').value.trim(),
+      smtp_address: document.getElementById('reset-smtp-address').value.trim(),
+      smtp_port: parseInt(document.getElementById('reset-smtp-port').value) || 465,
+      smtp_ssl: document.getElementById('reset-smtp-ssl').checked,
+      smtp_username: document.getElementById('reset-smtp-username').value.trim(),
+      smtp_password: document.getElementById('reset-smtp-password').value,
+      inbound_email_domain: document.getElementById('reset-inbound-domain').value.trim() || null,
+    }
+  };
+
+  if (!data.cnpj || !data.email || !data.email_recuperacao || !data.senha) {
+    errEl.textContent = 'Preencha todos os campos obrigatórios';
+    return;
+  }
+  if (!data.smtp.sender_email || !data.smtp.smtp_address || !data.smtp.smtp_username || !data.smtp.smtp_password) {
+    errEl.textContent = 'Preencha todos os campos SMTP obrigatórios';
+    return;
+  }
+  if (data.senha.length < 6) { errEl.textContent = 'Senha deve ter no mínimo 6 caracteres'; return; }
+
+  if (!confirm('ÚLTIMA CHANCE! Tem certeza que deseja apagar TODOS os dados do sistema?\n\nEsta ação é IRREVERSÍVEL.')) return;
+
+  errEl.textContent = '⏳ Apagando dados e reinstalando...';
+  const result = await installSaaS(data);
+  if (result && result.token) {
+    setToken(result.token);
+    setUser({ email: data.email, funcao: 'saas_owner', nome: data.empresa });
+    closeModal();
+    render();
+  } else {
+    errEl.textContent = (result && result.error) || 'Erro ao resetar sistema';
   }
 };
 
