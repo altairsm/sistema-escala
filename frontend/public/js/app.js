@@ -329,8 +329,11 @@ async function carregarTransportadoras() {
   const el = document.getElementById('saas-content');
   if (!data) { el.innerHTML = '<div class="empty-state">Erro ao carregar</div>'; return; }
 
-  // Carrega config SMTP
-  const smtpConfig = await apiGet('/smtp-config');
+  // Carrega config SMTP e perfil do proprietário
+  const [smtpConfig, ownerProfile] = await Promise.all([
+    apiGet('/smtp-config'),
+    apiGet('/owner/profile')
+  ]);
 
   el.innerHTML = `
     <div class="card">
@@ -338,6 +341,11 @@ async function carregarTransportadoras() {
         <div class="card-title">✉️ Configuração de Email</div>
         <button class="btn btn-sm btn-warning" onclick="showSmtpConfig()">⚙️ Configurar</button>
       </div>
+      ${ownerProfile ? `
+      <div style="background:var(--gray-light);padding:10px;border-radius:8px;margin-bottom:8px">
+        <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Email para Recuperação</div>
+        <div style="font-size:0.85rem">${ownerProfile.email_recuperacao}</div>
+      </div>` : ''}
       ${smtpConfig ? `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
         <div style="background:var(--gray-light);padding:10px;border-radius:8px">

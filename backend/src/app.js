@@ -79,7 +79,7 @@ app.post('/api/install', async (req, res) => {
       clearSmtpCache();
     }
 
-    const token = gerarToken({ id: 0, funcao: 'saas_owner', email });
+    const token = gerarToken({ id: owner[0].id, funcao: 'saas_owner', email });
     res.json({ token, message: 'SaaS instalado com sucesso' });
   } catch (err) {
     if (err.code === '23505') {
@@ -276,6 +276,20 @@ app.put('/api/smtp-config', authMiddleware, requireRole('saas_owner'), async (re
   } catch (err) {
     console.error('Erro ao salvar SMTP:', err);
     res.status(500).json({ error: 'Erro ao salvar configuração SMTP' });
+  }
+});
+
+// Perfil do SaaS owner
+app.get('/api/owner/profile', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, empresa, email, telefone, email_recuperacao, to_char(created_at, \'YYYY-MM-DD\') as created_at FROM saas_owner WHERE id = $1',
+      [req.user.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Proprietário não encontrado' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar perfil' });
   }
 });
 
