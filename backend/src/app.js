@@ -40,11 +40,6 @@ app.post('/api/install', async (req, res) => {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
   }
 
-  // SMTP obrigatório na instalação
-  if (!smtp || !smtp.sender_email || !smtp.smtp_address || !smtp.smtp_username || !smtp.smtp_password) {
-    return res.status(400).json({ error: 'Preencha todos os campos de configuração de email (SMTP)' });
-  }
-
   try {
     const { rows: existentes } = await query('SELECT id FROM saas_owner LIMIT 1');
     if (existentes.length > 0) {
@@ -58,30 +53,32 @@ app.post('/api/install', async (req, res) => {
       [empresa, cnpj, email, telefone || null, email_recuperacao, senha_hash]
     );
 
-    // Salva configuração SMTP
-    await query(
-      `INSERT INTO smtp_config (saas_owner_id, sender_email, sender_name, smtp_domain,
-        smtp_address, smtp_port, smtp_ssl, smtp_username, smtp_password,
-        smtp_authentication, smtp_enable_starttls_auto, smtp_openssl_verify_mode, inbound_email_domain)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [
-        owner[0].id,
-        smtp.sender_email,
-        smtp.sender_name || null,
-        smtp.smtp_domain || smtp.sender_email.split('@')[1] || '',
-        smtp.smtp_address,
-        smtp.smtp_port || 465,
-        smtp.smtp_ssl !== undefined ? smtp.smtp_ssl : true,
-        smtp.smtp_username,
-        smtp.smtp_password,
-        smtp.smtp_authentication || 'login',
-        smtp.smtp_enable_starttls_auto !== undefined ? smtp.smtp_enable_starttls_auto : true,
-        smtp.smtp_openssl_verify_mode || 'peer',
-        smtp.inbound_email_domain || null,
-      ]
-    );
+    // Salva configuração SMTP (opcional — pode ser configurado depois no admin)
+    if (smtp && smtp.sender_email && smtp.smtp_address && smtp.smtp_username && smtp.smtp_password) {
+      await query(
+        `INSERT INTO smtp_config (saas_owner_id, sender_email, sender_name, smtp_domain,
+          smtp_address, smtp_port, smtp_ssl, smtp_username, smtp_password,
+          smtp_authentication, smtp_enable_starttls_auto, smtp_openssl_verify_mode, inbound_email_domain)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          owner[0].id,
+          smtp.sender_email,
+          smtp.sender_name || null,
+          smtp.smtp_domain || smtp.sender_email.split('@')[1] || '',
+          smtp.smtp_address,
+          smtp.smtp_port || 465,
+          smtp.smtp_ssl !== undefined ? smtp.smtp_ssl : true,
+          smtp.smtp_username,
+          smtp.smtp_password,
+          smtp.smtp_authentication || 'login',
+          smtp.smtp_enable_starttls_auto !== undefined ? smtp.smtp_enable_starttls_auto : true,
+          smtp.smtp_openssl_verify_mode || 'peer',
+          smtp.inbound_email_domain || null,
+        ]
+      );
+      clearSmtpCache();
+    }
 
-    clearSmtpCache();
     const token = gerarToken({ id: 0, funcao: 'saas_owner', email });
     res.json({ token, message: 'SaaS instalado com sucesso' });
   } catch (err) {
