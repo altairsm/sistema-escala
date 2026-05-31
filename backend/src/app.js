@@ -716,12 +716,12 @@ app.get('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) =>
 });
 
 app.post('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao } = req.body;
+  const { carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao, box } = req.body;
   try {
     const { rows } = await query(
-      `INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [req.user.transportadora_id, carga, data_entrega, qtd_entg || 0, cub, placa, rota, regiao_nome, regiao]
+      `INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub, placa, rota, regiao_nome, regiao, box)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [req.user.transportadora_id, carga, data_entrega, qtd_entg || 0, cub, placa, rota, regiao_nome, regiao, box || null]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Erro ao criar carga' }); }

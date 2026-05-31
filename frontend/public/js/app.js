@@ -34,12 +34,14 @@ function apiDelete(path) { return apiFetch(path, { method: 'DELETE' }); }
 
 // ==================== STATE ====================
 let DATA = { cargas: [], entregas: [], reversas: [], devolucoes: [], veiculos: [], motoristas: [], ajudantes: [], funcionarios: [] };
+const DEFAULT_DAYS = 3;
+
 let filters = {
-  cargaStatus: '', cargaInicio: '', cargaFim: '',
-  equipeInicio: '', equipeFim: '', equipeStatus: '', equipePlaca: '',
-  entInicio: '', entFim: '', entCarga: '', entPlaca: '',
-  revInicio: '', revFim: '',
-  devInicio: '', devFim: ''
+  cargaStatus: '', cargaInicio: daysAgo(DEFAULT_DAYS), cargaFim: today(),
+  equipeInicio: daysAgo(DEFAULT_DAYS), equipeFim: today(), equipeStatus: '', equipePlaca: '',
+  entInicio: daysAgo(DEFAULT_DAYS), entFim: today(), entCarga: '', entPlaca: '',
+  revInicio: daysAgo(DEFAULT_DAYS), revFim: today(),
+  devInicio: daysAgo(DEFAULT_DAYS), devFim: today()
 };
 let activeTab = 0;
 
@@ -675,9 +677,9 @@ async function loadTransportadoraData() {
     .then(d => { if (d) DATA.cargas = d; });
   const p2 = apiGet(`/entregas${filters.entInicio ? `?dataInicio=${filters.entInicio}` : ''}${filters.entFim ? `&dataFim=${filters.entFim}` : ''}`)
     .then(d => { if (d) DATA.entregas = d; });
-  const p3 = apiGet(`/reversas`)
+  const p3 = apiGet(`/reversas${filters.revInicio ? `?dataInicio=${filters.revInicio}` : ''}${filters.revFim ? `&dataFim=${filters.revFim}` : ''}`)
     .then(d => { if (d) DATA.reversas = d; });
-  const p4 = apiGet(`/devolucoes`)
+  const p4 = apiGet(`/devolucoes${filters.devInicio ? `?dataInicio=${filters.devInicio}` : ''}${filters.devFim ? `&dataFim=${filters.devFim}` : ''}`)
     .then(d => { if (d) DATA.devolucoes = d; });
   const p5 = apiGet(`/veiculos`)
     .then(d => { if (d) DATA.veiculos = d; });
@@ -745,12 +747,13 @@ function renderProgramacao() {
         <div class="stat-item"><div class="stat-label">Placa Definida</div><div class="stat-value success">${confCount}</div></div>
         <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${cargas.length - confCount}</div></div>
       </div>
-      <div class="table-container"><table><thead><tr><th>Carga</th><th>Data</th><th>Qtd</th><th>Placa</th><th>Status</th><th>Ação</th></tr></thead>
-      <tbody>${cargas.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma carga</div></td></tr>` : cargas.map(c => `
+      <div class="table-container"><table><thead><tr><th>Carga</th><th>Data</th><th>Qtd</th><th>Box</th><th>Placa</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${cargas.length === 0 ? `<tr><td colspan="7"><div class="empty-state">📭 Nenhuma carga</div></td></tr>` : cargas.map(c => `
         <tr>
           <td><strong>${c.carga}</strong></td>
           <td>${fmtDate(c.data_entrega)}</td>
           <td>${c.qtd_entg || 0}</td>
+          <td>${c.box || ''}</td>
           <td>
             <input list="placa-list-${c.id}" id="placa-${c.id}" value="${c.placa || ''}" ${c.confirma ? 'disabled' : ''}
               onchange="updatePlaca(${c.id}, this.value)" placeholder="Placa"
@@ -772,6 +775,8 @@ function renderProgramacao() {
 window.updatePlaca = async function(id, placa) {
   const c = DATA.cargas.find(x => x.id === id);
   if (c) c.placa = placa;
+  const btn = document.querySelector(`button[onclick="confirmarCarga(${id})"]`);
+  if (btn) btn.disabled = !placa;
 };
 
 window.confirmarCarga = async function(id) {

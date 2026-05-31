@@ -56,8 +56,8 @@ body {
 }
 
 .header-info { flex: 1; }
-.header-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; }
-.header-sub { font-size: 0.75rem; opacity: 0.8; margin-top: 2px; }
+.header-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; color: white; }
+.header-sub { font-size: 0.75rem; opacity: 0.8; margin-top: 2px; color: rgba(255,255,255,0.85); }
 .header-actions { display: flex; gap: 12px; align-items: center; }
 
 .btn-refresh {
