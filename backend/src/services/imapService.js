@@ -107,14 +107,21 @@ async function checkMailbox(config) {
           const fetch = imap.fetch(results, { bodies: '', markSeen: true });
           let processed = 0;
           let messageCount = results.length;
+          const msgPromises = [];
 
           fetch.on('message', (msg, seqno) => {
             const chunks = [];
+            let msgResolve;
+            msgPromises.push(new Promise(resolve => { msgResolve = resolve; }));
+            let bodyProcessed = false;
 
             msg.on('body', (stream, info) => {
               stream.on('data', (chunk) => { chunks.push(chunk); });
 
               stream.once('end', async () => {
+                if (bodyProcessed) return;
+                bodyProcessed = true;
+
                 const rawEmail = Buffer.concat(chunks);
 
                 try {
@@ -125,11 +132,13 @@ async function checkMailbox(config) {
                     if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
                       console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
                       processed++;
+                      msgResolve();
                       return;
                     }
                     if (!fromAddr) {
                       console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
                       processed++;
+                      msgResolve();
                       return;
                     }
                   }
@@ -165,11 +174,20 @@ async function checkMailbox(config) {
                   console.error(`[IMAP] Erro ao processar email (${imap_username}):`, err.message);
                 }
                 processed++;
+                msgResolve();
               });
+            });
+
+            msg.once('end', () => {
+              if (!bodyProcessed) {
+                processed++;
+                msgResolve();
+              }
             });
           });
 
-          fetch.once('end', () => {
+          fetch.once('end', async () => {
+            await Promise.all(msgPromises);
             console.log(`[IMAP] Processados ${processed}/${messageCount} emails para ${imap_username}`);
             end();
           });
@@ -178,7 +196,7 @@ async function checkMailbox(config) {
     });
 
     imap.once('error', (err) => {
-      console.error(`[IMAP] Erro de conexão (${imap_username}):`, err.message);
+      console.error(`[IMAP] Erro de conexão (${imap_username} @ ${imap_host}:${imap_port}): ${err.message} (código: ${err.code || 'N/A'})`);
       end();
     });
 

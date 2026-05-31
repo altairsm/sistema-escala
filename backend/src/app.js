@@ -12,8 +12,8 @@ import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import multer from 'multer';
 import { sendMail, templateAcesso, templateRecuperacao, clearSmtpCache } from './config/email.js';
-import { processarXml } from './services/xmlProcessor.js';
-import { iniciarImapService } from './services/imapService.js';
+import { processarXml, extrairDadosXml } from './services/xmlProcessor.js';
+import { iniciarImapService, checkAllMailboxes } from './services/imapService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1308,9 +1308,69 @@ app.put('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req,
   }
 });
 
-// ==================== IMPORTAR XML (NF-e CASAS BAHIA) ====================
+// ==================== IMAP CHECK MANUAL ====================
+app.post('/api/imap/check', authMiddleware, async (req, res) => {
+  if (!['saas_owner', 'master'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Apenas saas_owner ou master podem forçar verificação IMAP' });
+  }
+  try {
+    console.log('[IMAP] Verificação forçada via API pelo usuário', req.user.email || req.user.id);
+    checkAllMailboxes().then(() => {
+      console.log('[IMAP] Verificação forçada concluída');
+    }).catch(err => {
+      console.error('[IMAP] Erro na verificação forçada:', err.message);
+    });
+    res.json({ message: 'Verificação IMAP iniciada em background' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao iniciar verificação IMAP', details: err.message });
+  }
+});
+
 const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
+// ==================== TESTAR XML (sem salvar) ====================
+app.post('/api/testar-xml', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const buffer = fs.readFileSync(req.file.path);
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let xmlContents = [];
+
+    if (ext === '.zip') {
+      const AdmZip = (await import('adm-zip')).default;
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries();
+      for (const entry of entries) {
+        if (entry.entryName.endsWith('.xml') && !entry.isDirectory) {
+          xmlContents.push(entry.getData().toString('utf8'));
+        }
+      }
+    } else if (ext === '.xml') {
+      xmlContents.push(buffer.toString('utf8'));
+    } else {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'Formato não suportado. Envie .xml ou .zip' });
+    }
+
+    const results = [];
+
+    for (const xml of xmlContents) {
+      const data = extrairDadosXml(xml);
+      results.push(data);
+    }
+
+    fs.unlink(req.file.path, () => {});
+
+    res.json({
+      message: `${results.length} XML(s) processado(s)`,
+      resultados: results,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao testar XML', details: err.message });
+  }
+});
+
+// ==================== IMPORTAR XML (NF-e CASAS BAHIA) ====================
 app.post('/api/importar-xml', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
   try {

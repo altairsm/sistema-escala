@@ -160,3 +160,61 @@ export async function processarXml(xmlContent, transportadora_id) {
     return { inserted: false, error: err.message };
   }
 }
+
+export function extrairDadosXml(xmlContent) {
+  let doc;
+  try {
+    doc = parser.parse(xmlContent);
+  } catch (err) {
+    return { error: `Erro ao fazer parse do XML: ${err.message}` };
+  }
+
+  let nfeProc = doc.nfeProc;
+  if (!nfeProc) {
+    const rootKeys = Object.keys(doc).filter(k => !k.startsWith('@_') && k !== '?xml');
+    for (const key of rootKeys) {
+      if (doc[key]?.nfeProc) nfeProc = doc[key].nfeProc;
+    }
+  }
+  if (!nfeProc) {
+    return { error: 'Tag nfeProc não encontrada no XML' };
+  }
+
+  const infNFe = nfeProc.NFe?.infNFe;
+  const protNFe = nfeProc.protNFe;
+  if (!infNFe || !protNFe) {
+    return { error: 'Tag infNFe ou protNFe não encontrada' };
+  }
+
+  const chaveNf = protNFe.infProt?.chNFe;
+  if (!chaveNf) {
+    return { error: 'Chave NF não encontrada' };
+  }
+
+  const nf = String(infNFe.ide?.nNF || '');
+  const dhEmi = infNFe.ide?.dhEmi || null;
+  const natOp = infNFe.ide?.natOp || '';
+  const cliente = infNFe.dest?.xNome || '';
+  const cidade = infNFe.dest?.enderDest?.xMun || '';
+  const bairro = infNFe.dest?.enderDest?.xBairro || '';
+  const infCpl = infNFe.infAdic?.infCpl || '';
+  const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
+
+  const data = extractData(infCpl, natOp);
+
+  return {
+    chaveNf,
+    nf,
+    dataNf,
+    natOp,
+    cliente,
+    cidade,
+    bairro,
+    numeroCarga: data?.numeroCarga || null,
+    box: data?.box || null,
+    nfPv: data?.numeroPedido || data?.numero || null,
+    filial: data?.filialVenda || null,
+    microZona: data?.microZona || null,
+    infCpl: infCpl.substring(0, 500),
+  };
+}
