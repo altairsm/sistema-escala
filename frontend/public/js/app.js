@@ -782,7 +782,7 @@ window.updatePlaca = async function(id, placa) {
 window.confirmarCarga = async function(id) {
   const c = DATA.cargas.find(x => x.id === id);
   if (!c || !c.placa) { alert('Informe uma placa'); return; }
-  const result = await apiPut(`/cargas/${id}/confirmar`);
+  const result = await apiPut(`/cargas/${id}/confirmar`, { placa: c.placa });
   if (result) { c.confirma = true; renderContent(); renderTabs(); }
   else alert('Erro ao confirmar');
 };

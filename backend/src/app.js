@@ -740,10 +740,11 @@ app.put('/api/cargas/:id/placa', authMiddleware, transportadoraFilter, async (re
 });
 
 app.put('/api/cargas/:id/confirmar', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { placa } = req.body;
   try {
     const { rows } = await query(
-      'UPDATE cargas SET confirma = true, updated_at = NOW() WHERE id = $1 AND transportadora_id = $2 RETURNING *',
-      [req.params.id, req.user.transportadora_id]
+      'UPDATE cargas SET confirma = true, placa = COALESCE($1, placa), updated_at = NOW() WHERE id = $2 AND transportadora_id = $3 RETURNING *',
+      [placa, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
     res.json(rows[0]);
