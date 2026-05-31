@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "node --watch src/app.js",
-    "migrate": "node src/database/migrate.js"
+    "migrate": "node src/database/migrate.js",
+    "reset-password": "node src/scripts/reset-password.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",
