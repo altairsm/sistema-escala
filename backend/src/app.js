@@ -1360,6 +1360,12 @@ app.post('/api/importar-xml', authMiddleware, transportadoraFilter, upload.singl
 app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
   try {
+    const { rows: [transp] } = await query(
+      'SELECT cod_transp FROM transportadoras WHERE id = $1',
+      [req.user.transportadora_id]
+    );
+    const codTranspEsperado = transp ? transp.cod_transp : null;
+
     function normalizeHeader(name) {
       return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
     }
@@ -1411,10 +1417,10 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
-    let inseridas = 0, atualizadas = 0;
+    let inseridas = 0, atualizadas = 0, ignoradas = 0;
     const erros = [];
 
-    console.log(`[XLSX] Dados iniciam na linha ${dataStartRow}`);
+    console.log(`[XLSX] Dados iniciam na linha ${dataStartRow}, cod_transp esperado: "${codTranspEsperado}"`);
     let emptyRows = 0;
     for (let r = dataStartRow; r <= sheet.rowCount; r++) {
       const carga = cell(r, 'CARGA')?.text?.toString().trim();
@@ -1422,6 +1428,11 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       emptyRows = 0;
 
       const codTranspLinha = String(cell(r, 'CÓD. TRANSP.')?.value ?? '').trim();
+      if (codTranspEsperado && codTranspLinha !== codTranspEsperado) {
+        ignoradas++;
+        if (ignoradas <= 3) console.log(`[XLSX] Linha ${r}: cod_transp "${codTranspLinha}" !== "${codTranspEsperado}" (ignorada)`);
+        continue;
+      }
 
       const dataSerial = cell(r, 'DATA ENTREGA')?.value;
       let dataEntrega = null;
@@ -1484,6 +1495,7 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       message: `Importação concluída`,
       inseridas,
       atualizadas,
+      ignoradas,
       erros: erros.length > 0 ? erros : undefined
     });
   } catch (err) {
