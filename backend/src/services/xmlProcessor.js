@@ -90,22 +90,12 @@ export async function processarXml(xmlContent, transportadora_id) {
   const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
 
   try {
-    const { rows } = await query(`
-      WITH updated AS (
-        UPDATE entregas SET
-          transportadora_id = $2, nf = $3, data_nf = $4, fc = $5, box = $6,
-          nf_pv = $7, filial = $8, cliente = $9, cidade = $10, bairro = $11,
-          micro_zona = $12, remessa = $13, updated_at = NOW()
-        WHERE chave_nf = $1
-        RETURNING id
-      )
-      INSERT INTO entregas (chave_nf, transportadora_id, nf, data_nf, fc, box,
-        nf_pv, filial, cliente, cidade, bairro, micro_zona, remessa)
-      SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-      WHERE NOT EXISTS (SELECT 1 FROM updated)
-      RETURNING 'inserted' AS action
-      UNION ALL
-      SELECT 'updated' FROM updated
+    const { rowCount } = await query(`
+      UPDATE entregas SET
+        transportadora_id = $2, nf = $3, data_nf = $4, fc = $5, box = $6,
+        nf_pv = $7, filial = $8, cliente = $9, cidade = $10, bairro = $11,
+        micro_zona = $12, remessa = $13, updated_at = NOW()
+      WHERE chave_nf = $1
     `, [
       chaveNf,
       transportadora_id,
@@ -122,13 +112,31 @@ export async function processarXml(xmlContent, transportadora_id) {
       natOp || null,
     ]);
 
-    return {
-      inserted: rows[0]?.action === 'inserted',
-      updated: rows[0]?.action === 'updated',
+    if (rowCount > 0) {
+      return { inserted: false, updated: true, chaveNf, nf, fc: data?.numeroCarga || null };
+    }
+
+    await query(`
+      INSERT INTO entregas (chave_nf, transportadora_id, nf, data_nf, fc, box,
+        nf_pv, filial, cliente, cidade, bairro, micro_zona, remessa)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `, [
       chaveNf,
+      transportadora_id,
       nf,
-      fc: data?.numeroCarga || null,
-    };
+      dataNf,
+      data?.numeroCarga || null,
+      data?.box ? parseInt(data.box, 10) : null,
+      data?.numeroPedido || data?.numero || null,
+      data?.filialVenda ? parseInt(data.filialVenda, 10) : null,
+      cliente || null,
+      cidade || null,
+      bairro || null,
+      data?.microZona || null,
+      natOp || null,
+    ]);
+
+    return { inserted: true, updated: false, chaveNf, nf, fc: data?.numeroCarga || null };
   } catch (err) {
     return { inserted: false, error: err.message };
   }
