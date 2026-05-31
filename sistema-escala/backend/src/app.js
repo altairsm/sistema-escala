@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import multer from 'multer';
+import { sendMail, templateAcesso, templateRecuperacao, clearSmtpCache } from './config/email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -34,9 +35,14 @@ app.get('/api/status', async (req, res) => {
 
 // Instalação inicial do SaaS
 app.post('/api/install', async (req, res) => {
-  const { empresa, cnpj, email, telefone, email_recuperacao, senha } = req.body;
+  const { empresa, cnpj, email, telefone, email_recuperacao, senha, smtp } = req.body;
   if (!empresa || !cnpj || !email || !email_recuperacao || !senha) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
+  }
+
+  // SMTP obrigatório na instalação
+  if (!smtp || !smtp.sender_email || !smtp.smtp_address || !smtp.smtp_username || !smtp.smtp_password) {
+    return res.status(400).json({ error: 'Preencha todos os campos de configuração de email (SMTP)' });
   }
 
   try {
@@ -46,12 +52,36 @@ app.post('/api/install', async (req, res) => {
     }
 
     const senha_hash = await bcrypt.hash(senha, 10);
-    await query(
+    const { rows: owner } = await query(
       `INSERT INTO saas_owner (empresa, cnpj, email, telefone, email_recuperacao, senha_hash)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [empresa, cnpj, email, telefone || null, email_recuperacao, senha_hash]
     );
 
+    // Salva configuração SMTP
+    await query(
+      `INSERT INTO smtp_config (saas_owner_id, sender_email, sender_name, smtp_domain,
+        smtp_address, smtp_port, smtp_ssl, smtp_username, smtp_password,
+        smtp_authentication, smtp_enable_starttls_auto, smtp_openssl_verify_mode, inbound_email_domain)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        owner[0].id,
+        smtp.sender_email,
+        smtp.sender_name || null,
+        smtp.smtp_domain || smtp.sender_email.split('@')[1] || '',
+        smtp.smtp_address,
+        smtp.smtp_port || 465,
+        smtp.smtp_ssl !== undefined ? smtp.smtp_ssl : true,
+        smtp.smtp_username,
+        smtp.smtp_password,
+        smtp.smtp_authentication || 'login',
+        smtp.smtp_enable_starttls_auto !== undefined ? smtp.smtp_enable_starttls_auto : true,
+        smtp.smtp_openssl_verify_mode || 'peer',
+        smtp.inbound_email_domain || null,
+      ]
+    );
+
+    clearSmtpCache();
     const token = gerarToken({ id: 0, funcao: 'saas_owner', email });
     res.json({ token, message: 'SaaS instalado com sucesso' });
   } catch (err) {
@@ -138,6 +168,120 @@ app.post('/api/auth/primeiro-acesso', authMiddleware, async (req, res) => {
   }
 });
 
+// Esqueci minha senha
+app.post('/api/auth/esqueci-senha', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email obrigatório' });
+
+  try {
+    // Busca em saas_owner
+    const { rows: saas } = await query('SELECT id, email FROM saas_owner WHERE email = $1', [email]);
+    if (saas.length > 0) {
+      const novaSenha = crypto.randomBytes(4).toString('hex') + 'A1@';
+      const senha_hash = await bcrypt.hash(novaSenha, 10);
+      await query('UPDATE saas_owner SET senha_hash = $1 WHERE id = $2', [senha_hash, saas[0].id]);
+
+      const sent = await sendMail({
+        to: email,
+        subject: 'Recuperação de Senha — Gestão de Escala',
+        html: templateRecuperacao(email, novaSenha),
+      });
+
+      return res.json({ message: sent ? 'Email enviado com sucesso' : 'Email não pôde ser enviado — verifique configuração SMTP' });
+    }
+
+    // Busca em usuarios
+    const { rows: users } = await query(
+      'SELECT u.id, u.email FROM usuarios u WHERE u.email = $1 AND u.ativo = true', [email]
+    );
+    if (users.length > 0) {
+      const novaSenha = crypto.randomBytes(4).toString('hex') + 'A1@';
+      const senha_hash = await bcrypt.hash(novaSenha, 10);
+      await query('UPDATE usuarios SET senha_hash = $1, primeiro_acesso = true WHERE id = $2', [senha_hash, users[0].id]);
+
+      const sent = await sendMail({
+        to: email,
+        subject: 'Recuperação de Senha — Gestão de Escala',
+        html: templateRecuperacao(email, novaSenha),
+      });
+
+      return res.json({ message: sent ? 'Email enviado com sucesso' : 'Email não pôde ser enviado — verifique configuração SMTP' });
+    }
+
+    // Não revela se o email existe ou não (segurança)
+    res.json({ message: 'Se o email estiver cadastrado, você receberá instruções de recuperação.' });
+  } catch (err) {
+    console.error('Erro no esqueci-senha:', err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ==================== ROTAS DE EMAIL / SMTP ====================
+
+// Buscar configuração SMTP
+app.get('/api/smtp-config', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM smtp_config ORDER BY id DESC LIMIT 1');
+    if (rows.length === 0) return res.json(null);
+    const cfg = rows[0];
+    cfg.smtp_password = cfg.smtp_password ? '********' : null;
+    res.json(cfg);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar configuração SMTP' });
+  }
+});
+
+// Salvar/atualizar configuração SMTP
+app.put('/api/smtp-config', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  const { sender_email, sender_name, smtp_domain, smtp_address, smtp_port, smtp_ssl,
+          smtp_username, smtp_password, smtp_authentication, smtp_enable_starttls_auto,
+          smtp_openssl_verify_mode, inbound_email_domain } = req.body;
+
+  if (!sender_email || !smtp_address || !smtp_username) {
+    return res.status(400).json({ error: 'sender_email, smtp_address e smtp_username obrigatórios' });
+  }
+
+  try {
+    // Busca config existente para preservar senha se não enviada
+    const { rows: existing } = await query('SELECT id, smtp_password FROM smtp_config ORDER BY id DESC LIMIT 1');
+    const password = smtp_password && smtp_password !== '********'
+      ? smtp_password
+      : (existing.length > 0 ? existing[0].smtp_password : '');
+
+    if (existing.length > 0) {
+      await query(
+        `UPDATE smtp_config SET sender_email = $1, sender_name = $2, smtp_domain = $3,
+         smtp_address = $4, smtp_port = $5, smtp_ssl = $6, smtp_username = $7,
+         smtp_password = $8, smtp_authentication = $9, smtp_enable_starttls_auto = $10,
+         smtp_openssl_verify_mode = $11, inbound_email_domain = $12, updated_at = NOW()
+         WHERE id = $13`,
+        [sender_email, sender_name, smtp_domain, smtp_address, smtp_port, smtp_ssl,
+         smtp_username, password, smtp_authentication, smtp_enable_starttls_auto,
+         smtp_openssl_verify_mode, inbound_email_domain, existing[0].id]
+      );
+    } else {
+      const { rows: owner } = await query('SELECT id FROM saas_owner LIMIT 1');
+      if (owner.length === 0) return res.status(400).json({ error: 'SaaS não instalado' });
+
+      await query(
+        `INSERT INTO smtp_config (saas_owner_id, sender_email, sender_name, smtp_domain,
+          smtp_address, smtp_port, smtp_ssl, smtp_username, smtp_password,
+          smtp_authentication, smtp_enable_starttls_auto, smtp_openssl_verify_mode, inbound_email_domain)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [owner[0].id, sender_email, sender_name, smtp_domain, smtp_address, smtp_port, smtp_ssl,
+         smtp_username, password, smtp_authentication, smtp_enable_starttls_auto,
+         smtp_openssl_verify_mode, inbound_email_domain]
+      );
+    }
+
+    clearSmtpCache();
+    res.json({ message: 'Configuração SMTP salva com sucesso' });
+  } catch (err) {
+    console.error('Erro ao salvar SMTP:', err);
+    res.status(500).json({ error: 'Erro ao salvar configuração SMTP' });
+  }
+});
+
 // ==================== ROTAS DO SAAS OWNER ====================
 
 // Listar transportadoras
@@ -200,6 +344,13 @@ app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner')
       'UPDATE transportadoras SET db_user_ext = $1, db_pass_enc = $2 WHERE id = $3',
       [dbUserExt, dbCreds, transpId]
     );
+
+    // Envia email com dados de acesso
+    sendMail({
+      to: email,
+      subject: 'Conta criada — Gestão de Escala',
+      html: templateAcesso(nome, email, senhaTemporaria),
+    });
 
     res.json({
       message: 'Transportadora cadastrada com sucesso',
@@ -505,7 +656,15 @@ app.post('/api/usuarios', authMiddleware, transportadoraFilter, async (req, res)
        VALUES ($1, $2, $3, $4, $5, true) RETURNING id, nome, email, funcao`,
       [req.user.transportadora_id, nome, email, senha_hash, funcao]
     );
-    res.json({ ...rows[0], senha_temporaria: senhaTemporaria });
+
+    // Envia email com senha temporária
+    sendMail({
+      to: email,
+      subject: 'Conta criada — Gestão de Escala',
+      html: templateAcesso(nome, email, senhaTemporaria),
+    });
+
+    res.json({ ...rows[0], senha_enviada_para: email });
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ error: 'Email já cadastrado' });
     res.status(500).json({ error: 'Erro ao criar usuário' });

@@ -11,8 +11,11 @@ services:
       POSTGRES_PASSWORD: ${DB_ROOT_PASSWORD:-changeme_root}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U escala_admin -d escala_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - escala-network
 
@@ -31,10 +34,18 @@ services:
       JWT_SECRET: ${JWT_SECRET:-changeme_jwt_secret}
       PORT: 3000
       APP_URL: ${APP_URL:-http://localhost}
-      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
+      MAILER_SENDER_EMAIL: ${MAILER_SENDER_EMAIL:-gestao@sactudo.com.br}
+      MAILER_SENDER_NAME: ${MAILER_SENDER_NAME:-Gestão de Escala}
+      SMTP_DOMAIN: ${SMTP_DOMAIN:-sactudo.com.br}
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-smtp.titan.email}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SSL: ${SMTP_SSL:-true}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-login}
+      SMTP_ENABLE_STARTTLS_AUTO: ${SMTP_ENABLE_STARTTLS_AUTO:-true}
+      SMTP_OPENSSL_VERIFY_MODE: ${SMTP_OPENSSL_VERIFY_MODE:-peer}
+      MAILER_INBOUND_EMAIL_DOMAIN: ${MAILER_INBOUND_EMAIL_DOMAIN:-sactudo.com.br}
     ports:
       - "3000:3000"
     networks:

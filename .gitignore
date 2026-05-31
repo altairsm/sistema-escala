@@ -1,1 +1,8 @@
 /sistema_escala_casas_bahia.html
+node_modules/
+.env
+.env.local
+/tmp/
+*.log
+.DS_Store
+Thumbs.db

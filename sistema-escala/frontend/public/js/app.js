@@ -94,6 +94,7 @@ function renderLoginPage(root) {
         <label>Senha</label>
         <input type="password" id="login-senha" placeholder="Sua senha" autocomplete="current-password">
         <button class="btn btn-primary" onclick="handleLogin()">Entrar</button>
+        <div class="link"><a onclick="showEsqueciSenha()">Esqueci minha senha</a></div>
         <div class="link" id="install-link-area"></div>
       </div>
     </div>
@@ -132,6 +133,42 @@ window.handleLogin = async function() {
   }
 };
 
+window.showEsqueciSenha = function() {
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="page-center">
+      <div class="page-card">
+        <div class="logo">🔑</div>
+        <h1>Recuperar Senha</h1>
+        <p class="subtitle">Digite seu email para receber uma nova senha</p>
+        <div id="rec-error" class="error"></div>
+        <label>Email</label>
+        <input type="email" id="rec-email" placeholder="seu@email.com" autocomplete="email">
+        <button class="btn btn-primary" onclick="handleEsqueciSenha()">Enviar</button>
+        <div class="link"><a onclick="render()">Voltar ao login</a></div>
+      </div>
+    </div>
+  `;
+};
+
+window.handleEsqueciSenha = async function() {
+  const email = document.getElementById('rec-email').value;
+  const errEl = document.getElementById('rec-error');
+  if (!email) { errEl.textContent = 'Informe seu email'; return; }
+  errEl.textContent = '';
+  const result = await apiPost('/auth/esqueci-senha', { email });
+  if (result && result.message) {
+    document.querySelector('.page-card').innerHTML = `
+      <div class="logo">✅</div>
+      <h1>Email Enviado</h1>
+      <p class="subtitle">${result.message}</p>
+      <div class="link"><a onclick="render()">Voltar ao login</a></div>
+    `;
+  } else {
+    errEl.textContent = (result && result.error) || 'Erro ao recuperar senha';
+  }
+};
+
 window.checkInstall = function() {
   const root = document.getElementById('root');
   root.innerHTML = `
@@ -153,6 +190,31 @@ window.checkInstall = function() {
         <input type="email" id="inst-email-rec" placeholder="recuperacao@meusaas.com">
         <label>Senha Mestre *</label>
         <input type="password" id="inst-senha" placeholder="Mínimo 6 caracteres">
+
+        <hr style="margin:20px 0;border:none;border-top:1px solid var(--border)">
+        <h3 style="font-size:0.95rem;margin-bottom:12px;color:var(--primary)">✉️ Configuração de Email (SMTP)</h3>
+        <p style="font-size:0.75rem;color:var(--gray);margin-bottom:16px">Usado para enviar dados de acesso e recuperação de senha</p>
+
+        <label>Email Remetente *</label>
+        <input type="email" id="inst-sender-email" placeholder="gestao@seudominio.com.br">
+        <label>Nome do Remetente</label>
+        <input type="text" id="inst-sender-name" placeholder="Gestão de Escala">
+        <label>Domínio do Email *</label>
+        <input type="text" id="inst-smtp-domain" placeholder="seudominio.com.br">
+        <label>Host SMTP *</label>
+        <input type="text" id="inst-smtp-address" placeholder="smtp.titan.email">
+        <label>Porta SMTP</label>
+        <input type="number" id="inst-smtp-port" value="465">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <input type="checkbox" id="inst-smtp-ssl" checked> SSL (desmarque se porta 587)
+        </label>
+        <label>Usuário SMTP *</label>
+        <input type="text" id="inst-smtp-username" placeholder="gestao@seudominio.com.br">
+        <label>Senha SMTP *</label>
+        <input type="password" id="inst-smtp-password" placeholder="Senha do SMTP">
+        <label>Domínio de Email de Entrada (opcional)</label>
+        <input type="text" id="inst-inbound-domain" placeholder="seudominio.com.br">
+
         <button class="btn btn-primary" onclick="handleInstall()">Instalar</button>
         <div class="link"><a onclick="render()">Voltar ao login</a></div>
       </div>
@@ -167,11 +229,26 @@ window.handleInstall = async function() {
     email: document.getElementById('inst-email').value,
     telefone: document.getElementById('inst-telefone').value,
     email_recuperacao: document.getElementById('inst-email-rec').value,
-    senha: document.getElementById('inst-senha').value
+    senha: document.getElementById('inst-senha').value,
+    smtp: {
+      sender_email: document.getElementById('inst-sender-email').value,
+      sender_name: document.getElementById('inst-sender-name').value,
+      smtp_domain: document.getElementById('inst-smtp-domain').value,
+      smtp_address: document.getElementById('inst-smtp-address').value,
+      smtp_port: parseInt(document.getElementById('inst-smtp-port').value) || 465,
+      smtp_ssl: document.getElementById('inst-smtp-ssl').checked,
+      smtp_username: document.getElementById('inst-smtp-username').value,
+      smtp_password: document.getElementById('inst-smtp-password').value,
+      inbound_email_domain: document.getElementById('inst-inbound-domain').value || null,
+    }
   };
   const errEl = document.getElementById('install-error');
   if (!data.empresa || !data.cnpj || !data.email || !data.email_recuperacao || !data.senha) {
     errEl.textContent = 'Preencha todos os campos obrigatórios';
+    return;
+  }
+  if (!data.smtp.sender_email || !data.smtp.smtp_address || !data.smtp.smtp_username || !data.smtp.smtp_password) {
+    errEl.textContent = 'Preencha todos os campos SMTP obrigatórios';
     return;
   }
   if (data.senha.length < 6) { errEl.textContent = 'Senha deve ter no mínimo 6 caracteres'; return; }
@@ -241,6 +318,7 @@ function renderSaaSPage(root) {
       <div class="content" id="saas-content">
         <div class="empty-state">🔄 Carregando...</div>
       </div>
+      <div id="modal-root"></div>
     </div>
   `;
   carregarTransportadoras();
@@ -251,7 +329,32 @@ async function carregarTransportadoras() {
   const el = document.getElementById('saas-content');
   if (!data) { el.innerHTML = '<div class="empty-state">Erro ao carregar</div>'; return; }
 
+  // Carrega config SMTP
+  const smtpConfig = await apiGet('/smtp-config');
+
   el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">✉️ Configuração de Email</div>
+        <button class="btn btn-sm btn-warning" onclick="showSmtpConfig()">⚙️ Configurar</button>
+      </div>
+      ${smtpConfig ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+        <div style="background:var(--gray-light);padding:10px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Remetente</div>
+          <div style="font-size:0.85rem">${smtpConfig.sender_email}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:10px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">SMTP</div>
+          <div style="font-size:0.85rem">${smtpConfig.smtp_address}:${smtpConfig.smtp_port}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:10px;border-radius:8px">
+          <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase">Domínio</div>
+          <div style="font-size:0.85rem">${smtpConfig.smtp_domain}</div>
+        </div>
+      </div>` : '<div class="empty-state" style="padding:20px">⚠️ SMTP não configurado — emails não serão enviados</div>'}
+    </div>
+
     <div class="card">
       <div class="card-header">
         <div class="card-title">🏢 Transportadoras Cadastradas</div>
@@ -276,6 +379,78 @@ async function carregarTransportadoras() {
     </div>
   `;
 }
+
+window.showSmtpConfig = async function() {
+  const config = await apiGet('/smtp-config');
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">✉️ Configuração SMTP</div>
+      <div class="modal-row">
+        <label>Email Remetente *</label>
+        <input id="smtp-sender-email" value="${(config && config.sender_email) || ''}" placeholder="gestao@seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Nome do Remetente</label>
+        <input id="smtp-sender-name" value="${(config && config.sender_name) || ''}" placeholder="Gestão de Escala">
+      </div>
+      <div class="modal-row">
+        <label>Domínio *</label>
+        <input id="smtp-domain" value="${(config && config.smtp_domain) || ''}" placeholder="seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Host SMTP *</label>
+        <input id="smtp-address" value="${(config && config.smtp_address) || ''}" placeholder="smtp.titan.email">
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Porta</label>
+          <input type="number" id="smtp-port" value="${(config && config.smtp_port) || 465}">
+        </div>
+        <div style="flex:1;display:flex;align-items:flex-end;padding-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="smtp-ssl" ${(!config || config.smtp_ssl) ? 'checked' : ''}> SSL
+          </label>
+        </div>
+      </div>
+      <div class="modal-row">
+        <label>Usuário SMTP *</label>
+        <input id="smtp-username" value="${(config && config.smtp_username) || ''}" placeholder="gestao@seudominio.com.br">
+      </div>
+      <div class="modal-row">
+        <label>Senha SMTP</label>
+        <input type="password" id="smtp-password" placeholder="${config ? 'Deixe em branco para manter a atual' : 'Obrigatório'}">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarSmtpConfig()">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarSmtpConfig = async function() {
+  const data = {
+    sender_email: document.getElementById('smtp-sender-email').value,
+    sender_name: document.getElementById('smtp-sender-name').value,
+    smtp_domain: document.getElementById('smtp-domain').value,
+    smtp_address: document.getElementById('smtp-address').value,
+    smtp_port: parseInt(document.getElementById('smtp-port').value) || 465,
+    smtp_ssl: document.getElementById('smtp-ssl').checked,
+    smtp_username: document.getElementById('smtp-username').value,
+    smtp_password: document.getElementById('smtp-password').value,
+  };
+  if (!data.sender_email || !data.smtp_address || !data.smtp_username) {
+    alert('Preencha todos os campos obrigatórios');
+    return;
+  }
+  const result = await apiPut('/smtp-config', data);
+  if (result && result.message) {
+    closeModal();
+    carregarTransportadoras();
+  } else {
+    alert((result && result.error) || 'Erro ao salvar');
+  }
+};
 
 window.showNovaTransportadora = function() {
   showModal(`
@@ -329,8 +504,7 @@ window.salvarTransportadora = async function() {
   const result = await apiPost('/admin/transportadoras', data);
   if (result && result.message) {
     closeModal();
-    // Mostra dados de acesso
-    alert(`Transportadora cadastrada!\n\nEmail: ${result.email_acesso}\nSenha: ${result.senha_temporaria}\n\nGuarde a senha. O usuário master deve trocar no primeiro acesso.`);
+    alert(`Transportadora cadastrada!\n\nOs dados de acesso foram enviados por email para ${result.email_acesso}.`);
     carregarTransportadoras();
   } else {
     alert((result && result.error) || 'Erro ao cadastrar');
@@ -1282,8 +1456,8 @@ window.salvarCadastro = async function(tipo, data) {
   if (result && result.id) {
     alert('Salvo com sucesso!');
 
-    if (tipo === 'usuarios' && result.senha_temporaria) {
-      alert(`Senha temporária: ${result.senha_temporaria}`);
+    if (tipo === 'usuarios' && result.senha_enviada_para) {
+      alert(`Email enviado para ${result.senha_enviada_para} com os dados de acesso.`);
     }
 
     // Refresh data
