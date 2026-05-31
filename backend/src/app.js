@@ -1360,15 +1360,6 @@ app.post('/api/importar-xml', authMiddleware, transportadoraFilter, upload.singl
 app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
   try {
-    const { rows: [transp] } = await query(
-      'SELECT cod_transp FROM transportadoras WHERE id = $1',
-      [req.user.transportadora_id]
-    );
-    if (!transp || !transp.cod_transp) {
-      return res.status(400).json({ error: 'Transportadora sem cod_transp configurado' });
-    }
-    const codTranspEsperado = transp.cod_transp;
-
     function normalizeHeader(name) {
       return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
     }
@@ -1420,7 +1411,7 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
-    let inseridas = 0, atualizadas = 0, ignoradas = 0;
+    let inseridas = 0, atualizadas = 0;
     const erros = [];
 
     console.log(`[XLSX] Dados iniciam na linha ${dataStartRow}`);
@@ -1431,11 +1422,6 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       emptyRows = 0;
 
       const codTranspLinha = String(cell(r, 'CÓD. TRANSP.')?.value ?? '').trim();
-      if (codTranspLinha !== codTranspEsperado) {
-        ignoradas++;
-        if (ignoradas <= 3) console.log(`[XLSX] Linha ${r}: cod_transp "${codTranspLinha}" !== "${codTranspEsperado}" (ignorada)`);
-        continue;
-      }
 
       const dataSerial = cell(r, 'DATA ENTREGA')?.value;
       let dataEntrega = null;
@@ -1458,31 +1444,34 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       if (isNaN(box) || box < 0 || box > 999) box = null;
 
       try {
-        const { rows: upserted } = await query(`
-          WITH updated AS (
-            UPDATE cargas SET
-              data_entrega = $2, qtd_entg = $3, cub = $4, regiao = $5,
-              rota = $6, transportadora = $7, tipo = $8, regiao_nome = $9,
-              identificacao = $10, box = $11, cod_transp = $12,
-              updated_at = NOW()
-            WHERE transportadora_id = $13 AND carga = $1
-            RETURNING id
-          )
-          INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub,
-            regiao, rota, transportadora, tipo, regiao_nome, identificacao, box, cod_transp)
-          SELECT $13, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-          WHERE NOT EXISTS (SELECT 1 FROM updated)
-          RETURNING 'inserted' AS action
-          UNION ALL
-          SELECT 'updated' FROM updated
+        const { rowCount } = await query(`
+          UPDATE cargas SET
+            data_entrega = $2, qtd_entg = $3, cub = $4, regiao = $5,
+            rota = $6, transportadora = $7, tipo = $8, regiao_nome = $9,
+            identificacao = $10, box = $11, cod_transp = $12,
+            updated_at = NOW()
+          WHERE transportadora_id = $13 AND carga = $1
         `, [
           carga, dataEntrega, qtdEntg, cub,
           regiao, rota, transportadora, tipo, regiaoNome,
           identificacao, box, codTranspLinha,
           req.user.transportadora_id
         ]);
-        if (upserted[0]?.action === 'inserted') inseridas++;
-        else atualizadas++;
+
+        if (rowCount === 0) {
+          await query(`
+            INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub,
+              regiao, rota, transportadora, tipo, regiao_nome, identificacao, box, cod_transp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          `, [
+            req.user.transportadora_id, carga, dataEntrega, qtdEntg, cub,
+            regiao, rota, transportadora, tipo, regiaoNome,
+            identificacao, box, codTranspLinha
+          ]);
+          inseridas++;
+        } else {
+          atualizadas++;
+        }
       } catch (err) {
         erros.push(`Linha ${r} (carga ${carga}): ${err.message}`);
       }
@@ -1495,7 +1484,6 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
       message: `Importação concluída`,
       inseridas,
       atualizadas,
-      ignoradas,
       erros: erros.length > 0 ? erros : undefined
     });
   } catch (err) {
