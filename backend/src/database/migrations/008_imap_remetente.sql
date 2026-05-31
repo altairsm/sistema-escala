@@ -1,0 +1,1 @@
+ALTER TABLE imap_config ADD COLUMN IF NOT EXISTS remetente_email VARCHAR(255);

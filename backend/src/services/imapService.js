@@ -56,7 +56,7 @@ function processSingleAttachment(filename, buffer, transportadora_id) {
 }
 
 async function checkMailbox(config) {
-  const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval } = config;
+  const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, remetente_email } = config;
 
   console.log(`[IMAP] Verificando email para transportadora #${transportadora_id} (${imap_username})`);
 
@@ -106,6 +106,21 @@ async function checkMailbox(config) {
               const date = attrs.date;
               try {
                 const parsed = await simpleParser(buffer);
+
+                if (remetente_email) {
+                  const fromAddr = parsed.from?.value?.[0]?.address;
+                  if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
+                    console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
+                    processed++;
+                    return;
+                  }
+                  if (!fromAddr) {
+                    console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
+                    processed++;
+                    return;
+                  }
+                }
+
                 const attachments = parsed.attachments || [];
 
                 for (const attachment of attachments) {

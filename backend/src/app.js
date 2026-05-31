@@ -1250,7 +1250,7 @@ app.get('/api/me/db-credentials', authMiddleware, transportadoraFilter, async (r
 app.get('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      'SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_check_interval, active, last_check_at FROM imap_config WHERE transportadora_id = $1',
+      'SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_check_interval, active, last_check_at, remetente_email FROM imap_config WHERE transportadora_id = $1',
       [req.user.transportadora_id]
     );
     res.json(rows[0] || null);
@@ -1258,7 +1258,7 @@ app.get('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req,
 });
 
 app.put('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active } = req.body;
+  const { imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active, remetente_email } = req.body;
   if (!imap_host || !imap_username) {
     return res.status(400).json({ error: 'Host e usuário IMAP obrigatórios' });
   }
@@ -1275,17 +1275,17 @@ app.put('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req,
     if (existing.length > 0) {
       await query(
         `UPDATE imap_config SET imap_host=$1, imap_port=$2, imap_ssl=$3, imap_username=$4,
-         imap_password=$5, imap_check_interval=$6, active=$7, updated_at=NOW()
-         WHERE id=$8`,
+         imap_password=$5, imap_check_interval=$6, active=$7, remetente_email=$8, updated_at=NOW()
+         WHERE id=$9`,
         [imap_host, imap_port || 993, imap_ssl !== false, imap_username, password,
-         imap_check_interval || 5, active !== false, existing[0].id]
+         imap_check_interval || 5, active !== false, remetente_email || null, existing[0].id]
       );
     } else {
       await query(
-        `INSERT INTO imap_config (transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO imap_config (transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active, remetente_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [tid, imap_host, imap_port || 993, imap_ssl !== false, imap_username, password,
-         imap_check_interval || 5, active !== false]
+         imap_check_interval || 5, active !== false, remetente_email || null]
       );
     }
     res.json({ message: 'Configuração IMAP salva' });

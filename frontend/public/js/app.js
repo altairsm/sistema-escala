@@ -608,15 +608,15 @@ window.regenSenhaTransportadora = async function(id) {
 
 // ==================== TRANSPORTADORA PAGE ====================
 const TABS = [
-  { label: '📅 Programação', icon: '📅' },
-  { label: '👥 Equipe', icon: '👥' },
-  { label: '📦 Entregas', icon: '📦' },
-  { label: '🔄 Reversa', icon: '🔄' },
-  { label: '🔁 Reentregas', icon: '🔁' },
-  { label: '⬅️ Devoluções', icon: '⬅️' },
-  { label: '📊 Indicadores', icon: '📊' },
-  { label: '⚙️ Admin', icon: '⚙️' },
-  { label: '📁 Arquivo', icon: '📁' }
+  { label: '📅 Programação' },
+  { label: '👥 Equipe' },
+  { label: '📦 Entregas' },
+  { label: '🔄 Reversa' },
+  { label: '🔁 Reentregas' },
+  { label: '⬅️ Devoluções' },
+  { label: '📊 Indicadores' },
+  { label: '⚙️ Admin' },
+  { label: '📁 Arquivo' }
 ];
 
 function renderTransportadoraPage(root) {
@@ -650,7 +650,6 @@ function renderTabs() {
   if (!bar) return;
   bar.innerHTML = TABS.map((t, i) => `
     <div class="tab ${i === activeTab ? 'active' : ''}" onclick="switchTab(${i})">
-      <span>${t.icon}</span>
       <span>${t.label}</span>
       ${i === 1 ? `<span class="tab-badge" id="badge-equipe">0</span>` : ''}
       ${i === 2 ? `<span class="tab-badge" id="badge-entregas">0</span>` : ''}
@@ -842,18 +841,24 @@ function renderEquipe() {
           <div class="equipe-grid">
             <div>
               <label style="font-size:11px;color:#64748b">Motorista *</label>
-              <input list="mot-${c.id}" id="mot-${c.id}" value="${c.motorista || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="mot-${c.id}">${motoristas.map(m => `<option value="${m.nome}">`).join('')}</datalist>
+              <select id="mot-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+                <option value="">Selecione...</option>
+                ${motoristas.map(m => `<option value="${m.nome}" ${c.motorista === m.nome ? 'selected' : ''}>${m.nome}</option>`).join('')}
+              </select>
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 1</label>
-              <input list="aj1-${c.id}" id="aj1-${c.id}" value="${c.ajudante_01 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="aj1-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+              <select id="aj1-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+                <option value="">Selecione...</option>
+                ${ajudantes.map(a => `<option value="${a.nome}" ${c.ajudante_01 === a.nome ? 'selected' : ''}>${a.nome}</option>`).join('')}
+              </select>
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 2</label>
-              <input list="aj2-${c.id}" id="aj2-${c.id}" value="${c.ajudante_02 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="aj2-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+              <select id="aj2-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+                <option value="">Selecione...</option>
+                ${ajudantes.map(a => `<option value="${a.nome}" ${c.ajudante_02 === a.nome ? 'selected' : ''}>${a.nome}</option>`).join('')}
+              </select>
             </div>
           </div>
           ${!c.confirma_equipe
@@ -1397,6 +1402,10 @@ async function carregarImapStatus() {
           <div>${cfg.active ? '✅ Ativo' : '⏹ Parado'}</div>
         </div>
         <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Remetente</div>
+          <div>${cfg.remetente_email || 'Todos'}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
           <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Última verificação</div>
           <div>${cfg.last_check_at || '—'}</div>
         </div>
@@ -1435,6 +1444,10 @@ window.showImapConfig = async function() {
         <label>Senha</label>
         <input type="password" id="imap-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}">
       </div>
+      <div class="modal-row">
+        <label>Remetente (filtrar por email)</label>
+        <input id="imap-remetente" value="${(cfg && cfg.remetente_email) || ''}" placeholder="remetente@dominio.com (opcional)">
+      </div>
       <div class="modal-row" style="display:flex;gap:12px">
         <div style="flex:1">
           <label>Intervalo (minutos)</label>
@@ -1463,6 +1476,7 @@ window.salvarImapConfig = async function() {
     imap_password: document.getElementById('imap-password').value,
     imap_check_interval: parseInt(document.getElementById('imap-interval').value) || 5,
     active: document.getElementById('imap-active').checked,
+    remetente_email: document.getElementById('imap-remetente').value || null,
   };
   if (!data.imap_host || !data.imap_username) {
     alert('Host e usuário são obrigatórios');
