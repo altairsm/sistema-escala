@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { query } from './config/database.js';
+import { migrate } from './database/migrate.js';
 import { gerarToken, authMiddleware, requireRole } from './middleware/auth.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
@@ -38,15 +39,29 @@ app.get('/api/status', async (req, res) => {
 
 // Instalação inicial do SaaS
 app.post('/api/install', async (req, res) => {
-  const { empresa, cnpj, email, telefone, email_recuperacao, senha, smtp } = req.body;
+  const { empresa, cnpj, email, telefone, email_recuperacao, senha, smtp, reset } = req.body;
   if (!empresa || !cnpj || !email || !email_recuperacao || !senha) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
   }
 
   try {
-    const { rows: existentes } = await query('SELECT id FROM saas_owner LIMIT 1');
-    if (existentes.length > 0) {
-      return res.status(400).json({ error: 'SaaS já instalado' });
+    if (reset) {
+      // ========== Instalação do zero: apaga tudo e recria ==========
+      console.log('[INSTALL] Reset solicitado — apagando banco de dados...');
+
+      await query(`DROP SCHEMA public CASCADE`);
+      await query(`CREATE SCHEMA public`);
+      await query(`GRANT ALL ON SCHEMA public TO CURRENT_USER`);
+
+      console.log('[INSTALL] Schema recriado. Executando migrações...');
+      await migrate();
+      console.log('[INSTALL] Migrações concluídas.');
+    } else {
+      // ========== Instalação normal: só permite se não existir ==========
+      const { rows: existentes } = await query('SELECT id FROM saas_owner LIMIT 1');
+      if (existentes.length > 0) {
+        return res.status(400).json({ error: 'SaaS já instalado' });
+      }
     }
 
     const senha_hash = await bcrypt.hash(senha, 10);
@@ -472,6 +487,54 @@ app.post('/api/admin/transportadoras/:id/regen-db-password', authMiddleware, req
     });
   } catch (err) {
     res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ==================== EXCLUIR TRANSPORTADORA ====================
+app.delete('/api/admin/transportadoras/:id', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, cod_transp, db_user_ext FROM transportadoras WHERE id = $1',
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
+
+    const transp = rows[0];
+
+    // Drop PostgreSQL external role se existir
+    if (transp.db_user_ext) {
+      try {
+        await query(`DROP ROLE IF EXISTS ${transp.db_user_ext}`);
+        console.log(`[ADMIN] Role PG ${transp.db_user_ext} removida`);
+      } catch (pgErr) {
+        console.warn(`[ADMIN] Aviso ao dropar role ${transp.db_user_ext}:`, pgErr.message);
+      }
+    }
+
+    // Remove arquivos do disco relacionados à transportadora
+    const arquivosDir = path.join('/tmp/uploads');
+    if (fs.existsSync(arquivosDir)) {
+      try {
+        const { rows: arquivos } = await query(
+          'SELECT caminho FROM arquivos WHERE transportadora_id = $1',
+          [transp.id]
+        );
+        for (const arq of arquivos) {
+          try { fs.unlinkSync(arq.caminho); } catch {}
+        }
+      } catch (err) {
+        console.warn('[ADMIN] Aviso ao limpar arquivos:', err.message);
+      }
+    }
+
+    // DELETE da transportadora — cascata apaga todos os dados filhos
+    await query('DELETE FROM transportadoras WHERE id = $1', [transp.id]);
+
+    console.log(`[ADMIN] Transportadora #${transp.id} (${transp.cod_transp}) excluída`);
+    res.json({ message: 'Transportadora e todos os dados associados foram excluídos' });
+  } catch (err) {
+    console.error('Erro ao excluir transportadora:', err);
+    res.status(500).json({ error: 'Erro interno ao excluir transportadora' });
   }
 });
 

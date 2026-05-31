@@ -104,7 +104,15 @@ function renderLoginPage(root) {
 
   // Check if installed
   apiGet('/status').then(s => {
-    if (s && !s.instalado) {
+    if (s && s.instalado) {
+      document.getElementById('install-link-area').innerHTML = `
+        <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
+        <div style="font-size:0.8rem;color:var(--gray);margin-bottom:8px">Sistema já instalado</div>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="btn btn-sm btn-primary" onclick="document.getElementById('login-email').focus()">🔑 Fazer Login</button>
+          <button class="btn btn-sm btn-danger" onclick="checkInstall(true)">⚠️ Instalar do zero</button>
+        </div>`;
+    } else if (s && !s.instalado) {
       document.getElementById('install-link-area').innerHTML =
         '<a onclick="checkInstall()">Primeiro acesso? Instalar sistema</a>';
     }
@@ -171,7 +179,7 @@ window.handleEsqueciSenha = async function() {
   }
 };
 
-window.checkInstall = function() {
+window.checkInstall = function(reset) {
   const root = document.getElementById('root');
   root.innerHTML = `
     <div class="page-center">
@@ -179,6 +187,7 @@ window.checkInstall = function() {
         <div class="logo">🏠</div>
         <h1>Instalação do Sistema</h1>
         <p class="subtitle">Cadastro do proprietário SaaS</p>
+        ${reset ? '<div class="warning-box" style="margin-bottom:16px">⚠️ ATENÇÃO: Isso apagará TODOS os dados do sistema e reinstalará do zero!</div>' : ''}
         <div id="install-error" class="error"></div>
         <label>Nome da Empresa *</label>
         <input type="text" id="inst-empresa" placeholder="Minha Transportadora SaaS">
@@ -217,14 +226,16 @@ window.checkInstall = function() {
         <label>Domínio de Email de Entrada (opcional)</label>
         <input type="text" id="inst-inbound-domain" placeholder="seudominio.com.br">
 
-        <button class="btn btn-primary" onclick="handleInstall()">Instalar</button>
+        <button class="btn ${reset ? 'btn-danger' : 'btn-primary'}" onclick="handleInstall(${reset ? 'true' : ''})">
+          ${reset ? '⚠️ Apagar tudo e Instalar' : 'Instalar'}
+        </button>
         <div class="link"><a onclick="render()">Voltar ao login</a></div>
       </div>
     </div>
   `;
 };
 
-window.handleInstall = async function() {
+window.handleInstall = async function(reset) {
   const data = {
     empresa: document.getElementById('inst-empresa').value,
     cnpj: document.getElementById('inst-cnpj').value,
@@ -232,6 +243,7 @@ window.handleInstall = async function() {
     telefone: document.getElementById('inst-telefone').value,
     email_recuperacao: document.getElementById('inst-email-rec').value,
     senha: document.getElementById('inst-senha').value,
+    reset: !!reset,
     smtp: {
       sender_email: document.getElementById('inst-sender-email').value,
       sender_name: document.getElementById('inst-sender-name').value,
@@ -563,8 +575,9 @@ window.verTransportadora = async function(id) {
       </div>
       ` : '<p style="color:var(--gray)">Credenciais PG não configuradas.</p>'}
 
-      <div style="display:flex;gap:8px;margin-top:12px">
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-sm btn-warning" onclick="regenSenhaTransportadora(${id})">🔄 Regenerar Senha Master</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirTransportadora(${id}, '${data.cod_transp}')">🗑️ Excluir</button>
       </div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal()">Fechar</button>
@@ -603,6 +616,23 @@ window.regenSenhaTransportadora = async function(id) {
     alert(`Nova senha do master (${result.email}): ${result.senha_temporaria}`);
   } else {
     alert('Erro ao regenerar');
+  }
+};
+
+window.excluirTransportadora = async function(id, codTransp) {
+  const msg = `Tem certeza que deseja EXCLUIR a transportadora "${codTransp}"?\n\nTodos os dados serão apagados permanentemente:\n- Usuários, motoristas, ajudantes, veículos\n- Cargas, entregas, reversas, devoluções\n- Arquivos e configuração IMAP\n\nDigite o código "${codTransp}" para confirmar:`;
+  const confirmacao = prompt(msg);
+  if (confirmacao !== codTransp) {
+    if (confirmacao !== null) alert('Código incorreto. Exclusão cancelada.');
+    return;
+  }
+  const result = await apiDelete(`/admin/transportadoras/${id}`);
+  if (result && result.message) {
+    closeModal();
+    alert(result.message);
+    carregarTransportadoras();
+  } else {
+    alert((result && result.error) || 'Erro ao excluir transportadora');
   }
 };
 

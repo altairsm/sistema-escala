@@ -9,7 +9,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function migrate() {
+export async function migrate() {
   let client;
   for (let attempt = 1; attempt <= 10; attempt++) {
     try {
@@ -22,7 +22,7 @@ async function migrate() {
   }
   if (!client) {
     console.error('Erro: não foi possível conectar ao banco após 10 tentativas');
-    process.exit(1);
+    throw new Error('Falha ao conectar no banco');
   }
   try {
     await client.query(`
@@ -53,11 +53,22 @@ async function migrate() {
     console.log('Migrações concluídas com sucesso.');
   } catch (err) {
     console.error('Erro ao executar migrações:', err);
-    process.exit(1);
+    throw err;
   } finally {
     client.release();
-    await pool.end();
   }
 }
 
-migrate();
+// Quando executado diretamente (start.sh), fecha o pool ao final
+const isMain = process.argv[1] && (
+  process.argv[1] === fileURLToPath(import.meta.url) ||
+  process.argv[1].endsWith('migrate.js')
+);
+
+if (isMain) {
+  migrate().then(() => {
+    return pool.end();
+  }).catch(() => {
+    return pool.end().then(() => process.exit(1));
+  });
+}
