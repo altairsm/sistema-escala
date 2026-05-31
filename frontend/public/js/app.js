@@ -555,10 +555,10 @@ window.verTransportadora = async function(id) {
         <div><label>Porta</label><span>${db.port}</span></div>
         <div><label>Database</label><span>${db.database}</span></div>
         <div><label>Usuário</label><span>${db.user}</span></div>
-        <div><label>Senha</label><span id="db-pass-display">●●●●●●●●●●●●</span></div>
+        <div><label>Senha</label><span id="db-pass-display" data-password="${db.password}">●●●●●●●●●●●●</span></div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:16px">
-        <button class="btn btn-sm btn-primary" onclick="toggleDbPass()">Mostrar Senha</button>
+        <button class="btn btn-sm btn-primary" onclick="copiarSenha()">📋 Copiar Senha</button>
         <button class="btn btn-sm btn-warning" onclick="regenDbPass(${id})">Regenerar Senha PG</button>
       </div>
       ` : '<p style="color:var(--gray)">Credenciais PG não configuradas.</p>'}
@@ -573,19 +573,15 @@ window.verTransportadora = async function(id) {
   `);
 };
 
-window.toggleDbPass = function() {
+window.copiarSenha = async function() {
   const el = document.getElementById('db-pass-display');
-  if (!el) return;
-  if (el.dataset.revealed === 'true') {
-    el.textContent = '●●●●●●●●●●●●';
-    el.dataset.revealed = 'false';
-  } else {
-    const data = document.querySelector('.info-grid');
-    if (data) {
-      const spans = data.querySelectorAll('span');
-      el.textContent = spans[4]?.textContent || 'N/D';
-      el.dataset.revealed = 'true';
-    }
+  if (!el || !el.dataset.password) return;
+  try {
+    await navigator.clipboard.writeText(el.dataset.password);
+    const btn = document.querySelector('button[onclick="copiarSenha()"]');
+    if (btn) { btn.textContent = '✅ Copiada!'; setTimeout(() => { btn.textContent = '📋 Copiar Senha'; }, 2000); }
+  } catch {
+    alert('Não foi possível copiar. Selecione a senha manualmente.');
   }
 };
 
@@ -806,8 +802,9 @@ function renderEquipe() {
   if (filters.equipePlaca) cargas = cargas.filter(c => c.placa === filters.equipePlaca);
 
   const placas = [...new Set(DATA.cargas.filter(c => c.placa).map(c => c.placa))];
-  const motoristas = DATA.funcionarios.filter(f => f.funcao === 'motorista');
-  const ajudantes = DATA.funcionarios.filter(f => f.funcao === 'ajudante');
+  const funcionarios = Array.isArray(DATA.funcionarios) ? DATA.funcionarios : [];
+  const motoristas = funcionarios.filter(f => f.funcao === 'motorista');
+  const ajudantes = funcionarios.filter(f => f.funcao === 'ajudante');
 
   return `
     <div class="card">
@@ -834,6 +831,11 @@ function renderEquipe() {
         <div class="equipe-card ${c.confirma_equipe ? 'confirmed' : ''}" style="padding:16px;border-radius:12px;border:1px solid #e2e8f0;margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:12px">
             <div><strong>${c.carga}</strong> <span class="badge badge-info">${c.placa || 'Sem placa'}</span></div>
+            <div style="font-size:0.75rem;color:var(--gray);display:flex;gap:12px;flex-wrap:wrap">
+              <span>📦 Entregas: ${c.qtd_entg || 0}</span>
+              <span>📐 Cubagem: ${c.cub || '—'} m²</span>
+              <span>📍 ${c.regiao_nome || ''} ${c.regiao || ''}</span>
+            </div>
             ${c.confirma_equipe ? '<span class="badge badge-success">✅ Confirmada</span>' : '<span class="badge badge-warning">⏳ Pendente</span>'}
           </div>
           <div class="equipe-grid">
