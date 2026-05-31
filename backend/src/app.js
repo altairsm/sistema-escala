@@ -706,6 +706,144 @@ app.delete('/api/veiculos/:id', authMiddleware, transportadoraFilter, async (req
   } catch (err) { res.status(500).json({ error: 'Erro ao remover veículo' }); }
 });
 
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// --- Import CSV: Veículos ---
+app.post('/api/veiculos/import', authMiddleware, transportadoraFilter, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const text = fs.readFileSync(req.file.path, 'utf8');
+    fs.unlink(req.file.path, () => {});
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    if (headers.indexOf('placa') === -1) return res.status(400).json({ error: 'Coluna "placa" obrigatória no CSV' });
+    const colTipo = headers.indexOf('tipo');
+    const colObs = headers.indexOf('obs');
+    const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
+    for (let i = 1; i < lines.length; i++) {
+      result.total++;
+      const values = parseCSVLine(lines[i]);
+      const placa = (values[headers.indexOf('placa')] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!placa) { result.erros.push({ linha: i + 1, mensagem: 'Placa é obrigatória' }); continue; }
+      const tipo = colTipo >= 0 && values[colTipo] ? values[colTipo] : null;
+      const obs = colObs >= 0 && values[colObs] ? values[colObs] : null;
+      const { rows } = await query('SELECT id FROM veiculos WHERE transportadora_id = $1 AND placa = $2', [req.user.transportadora_id, placa]);
+      if (rows.length > 0) {
+        await query(`UPDATE veiculos SET tipo = $1, obs = $2, ativo = true, updated_at = NOW() WHERE id = $3`, [tipo, obs, rows[0].id]);
+        result.atualizados++;
+      } else {
+        await query(`INSERT INTO veiculos (transportadora_id, placa, tipo, obs) VALUES ($1, $2, $3, $4)`, [req.user.transportadora_id, placa, tipo, obs]);
+        result.criados++;
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    try { fs.unlink(req.file.path, () => {}); } catch {}
+    console.error('[IMPORT] Erro veiculos:', err);
+    res.status(500).json({ error: 'Erro ao importar veículos', details: err.message });
+  }
+});
+
+// --- Import CSV: Motoristas ---
+app.post('/api/motoristas/import', authMiddleware, transportadoraFilter, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const text = fs.readFileSync(req.file.path, 'utf8');
+    fs.unlink(req.file.path, () => {});
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    const colNome = headers.indexOf('nome');
+    const colCpf = headers.indexOf('cpf');
+    const colCnh = headers.indexOf('cnh');
+    const colTel = headers.indexOf('telefone');
+    if (colNome === -1) return res.status(400).json({ error: 'Coluna "nome" obrigatória no CSV' });
+    const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
+    for (let i = 1; i < lines.length; i++) {
+      result.total++;
+      const values = parseCSVLine(lines[i]);
+      const nome = values[colNome] ? values[colNome].trim() : '';
+      if (!nome) { result.erros.push({ linha: i + 1, mensagem: 'Nome é obrigatório' }); continue; }
+      const cpf = colCpf >= 0 ? (values[colCpf] ? values[colCpf].replace(/[^\d]/g, '') : null) : null;
+      const cnh = colCnh >= 0 && values[colCnh] ? values[colCnh].trim() : null;
+      const telefone = colTel >= 0 && values[colTel] ? values[colTel].trim() : null;
+      if (cpf) {
+        const { rows } = await query('SELECT id FROM motoristas WHERE transportadora_id = $1 AND cpf = $2', [req.user.transportadora_id, cpf]);
+        if (rows.length > 0) {
+          await query(`UPDATE motoristas SET nome = $1, cnh = $2, telefone = $3, ativo = true, updated_at = NOW() WHERE id = $4`, [nome, cnh, telefone, rows[0].id]);
+          result.atualizados++;
+          continue;
+        }
+      }
+      await query(`INSERT INTO motoristas (transportadora_id, nome, cpf, cnh, telefone) VALUES ($1, $2, $3, $4, $5)`, [req.user.transportadora_id, nome, cpf, cnh, telefone]);
+      result.criados++;
+    }
+    res.json(result);
+  } catch (err) {
+    try { fs.unlink(req.file.path, () => {}); } catch {}
+    console.error('[IMPORT] Erro motoristas:', err);
+    res.status(500).json({ error: 'Erro ao importar motoristas', details: err.message });
+  }
+});
+
+// --- Import CSV: Ajudantes ---
+app.post('/api/ajudantes/import', authMiddleware, transportadoraFilter, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const text = fs.readFileSync(req.file.path, 'utf8');
+    fs.unlink(req.file.path, () => {});
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    const colNome = headers.indexOf('nome');
+    const colCpf = headers.indexOf('cpf');
+    const colTel = headers.indexOf('telefone');
+    if (colNome === -1) return res.status(400).json({ error: 'Coluna "nome" obrigatória no CSV' });
+    const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
+    for (let i = 1; i < lines.length; i++) {
+      result.total++;
+      const values = parseCSVLine(lines[i]);
+      const nome = values[colNome] ? values[colNome].trim() : '';
+      if (!nome) { result.erros.push({ linha: i + 1, mensagem: 'Nome é obrigatório' }); continue; }
+      const cpf = colCpf >= 0 ? (values[colCpf] ? values[colCpf].replace(/[^\d]/g, '') : null) : null;
+      const telefone = colTel >= 0 && values[colTel] ? values[colTel].trim() : null;
+      if (cpf) {
+        const { rows } = await query('SELECT id FROM ajudantes WHERE transportadora_id = $1 AND cpf = $2', [req.user.transportadora_id, cpf]);
+        if (rows.length > 0) {
+          await query(`UPDATE ajudantes SET nome = $1, telefone = $2, ativo = true, updated_at = NOW() WHERE id = $3`, [nome, telefone, rows[0].id]);
+          result.atualizados++;
+          continue;
+        }
+      }
+      await query(`INSERT INTO ajudantes (transportadora_id, nome, cpf, telefone) VALUES ($1, $2, $3, $4)`, [req.user.transportadora_id, nome, cpf, telefone]);
+      result.criados++;
+    }
+    res.json(result);
+  } catch (err) {
+    try { fs.unlink(req.file.path, () => {}); } catch {}
+    console.error('[IMPORT] Erro ajudantes:', err);
+    res.status(500).json({ error: 'Erro ao importar ajudantes', details: err.message });
+  }
+});
+
 // --- Usuários da transportadora (master pode gerenciar) ---
 app.get('/api/usuarios', authMiddleware, transportadoraFilter, async (req, res) => {
   if (!['master', 'admin'].includes(req.user.funcao)) {

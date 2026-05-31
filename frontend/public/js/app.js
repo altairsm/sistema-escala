@@ -1532,17 +1532,26 @@ function renderAdminTransportadora() {
         <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
           <div style="font-size:2rem;margin-bottom:8px">👨‍✈️</div>
           <div style="font-weight:600;margin-bottom:8px">Motoristas (${DATA.motoristas.filter(m => m.ativo !== false).length})</div>
-          <button class="btn btn-sm btn-primary" onclick="abrirGestao('motoristas')">Gerenciar</button>
+          <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="abrirGestao('motoristas')">Gerenciar</button>
+            <button class="btn btn-sm btn-success" onclick="abrirImportacao('motoristas')">📥 Importar</button>
+          </div>
         </div>
         <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
           <div style="font-size:2rem;margin-bottom:8px">🧑‍🤝‍🧑</div>
           <div style="font-weight:600;margin-bottom:8px">Ajudantes (${DATA.ajudantes.filter(a => a.ativo !== false).length})</div>
-          <button class="btn btn-sm btn-primary" onclick="abrirGestao('ajudantes')">Gerenciar</button>
+          <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="abrirGestao('ajudantes')">Gerenciar</button>
+            <button class="btn btn-sm btn-success" onclick="abrirImportacao('ajudantes')">📥 Importar</button>
+          </div>
         </div>
         <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
           <div style="font-size:2rem;margin-bottom:8px">🚛</div>
           <div style="font-weight:600;margin-bottom:8px">Veículos (${DATA.veiculos.filter(v => v.ativo !== false).length})</div>
-          <button class="btn btn-sm btn-primary" onclick="abrirGestao('veiculos')">Gerenciar</button>
+          <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" onclick="abrirGestao('veiculos')">Gerenciar</button>
+            <button class="btn btn-sm btn-success" onclick="abrirImportacao('veiculos')">📥 Importar</button>
+          </div>
         </div>
         ${isMaster ? `
         <div style="border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
@@ -1771,6 +1780,82 @@ window.testarConexaoImap = async function() {
     alert('❌ Erro na conexão: ' + (res && res.error || 'Falha desconhecida'));
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔌 Testar Conexão'; }
+};
+
+const TEMPLATES = {
+  veiculos: { label: 'Veículos', cols: ['placa', 'tipo', 'obs'], ex: 'ABC1234,Caminhão,Observação' },
+  motoristas: { label: 'Motoristas', cols: ['nome', 'cpf', 'cnh', 'telefone'], ex: 'João Silva,12345678901,12345678901,(11) 99999-9999' },
+  ajudantes: { label: 'Ajudantes', cols: ['nome', 'cpf', 'telefone'], ex: 'Maria Souza,98765432109,(11) 88888-8888' },
+};
+
+window.baixarTemplate = function(tipo) {
+  const t = TEMPLATES[tipo];
+  if (!t) return;
+  const csv = t.cols.join(',') + '\n' + t.ex;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${tipo}_modelo.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.abrirImportacao = function(tipo) {
+  const t = TEMPLATES[tipo];
+  if (!t) return;
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">📥 Importar ${t.label}</div>
+      <p style="font-size:0.8rem;color:var(--gray);margin-bottom:16px">
+        Faça upload de um arquivo CSV com os dados.<br>
+        <a href="#" onclick="baixarTemplate('${tipo}');return false" style="color:var(--primary)">📄 Baixar modelo CSV</a>
+      </p>
+      <div id="import-error" class="error" style="display:none"></div>
+      <div id="import-result" style="display:none;margin-bottom:16px"></div>
+      <div class="modal-row">
+        <label>Arquivo CSV</label>
+        <input type="file" id="import-file" accept=".csv" style="width:100%">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-success" onclick="processarImportacao('${tipo}')">📥 Importar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.processarImportacao = async function(tipo) {
+  const fileInput = document.getElementById('import-file');
+  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+    const errEl = document.getElementById('import-error');
+    if (errEl) { errEl.textContent = 'Selecione um arquivo CSV'; errEl.style.display = 'block'; }
+    return;
+  }
+  const btn = document.querySelector('button[onclick^="processarImportacao"]');
+  if (btn) btn.disabled = true;
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  const res = await apiFetch(`/${tipo}/import`, { method: 'POST', body: formData });
+  if (btn) btn.disabled = false;
+  const errEl = document.getElementById('import-error');
+  if (!res || res.error) {
+    if (errEl) { errEl.textContent = (res && res.error) || 'Erro ao importar'; errEl.style.display = 'block'; }
+    return;
+  }
+  const resultEl = document.getElementById('import-result');
+  if (resultEl) {
+    const errosHtml = res.erros && res.erros.length > 0
+      ? `<div style="margin-top:8px;font-size:0.75rem;color:var(--red)">${res.erros.map(e => `Linha ${e.linha}: ${e.mensagem}`).join('<br>')}</div>`
+      : '';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `
+      <div style="background:#f0fdf4;padding:12px;border-radius:8px;border:1px solid #bbf7d0">
+        <div style="font-weight:600;margin-bottom:4px">✅ Importação concluída</div>
+        <div style="font-size:0.85rem">Total: ${res.total} · Criados: ${res.criados} · Atualizados: ${res.atualizados}${res.erros && res.erros.length > 0 ? ` · Erros: ${res.erros.length}` : ''}</div>
+        ${errosHtml}
+      </div>`;
+  }
+  loadTransportadoraData();
 };
 
 window.abrirGestao = async function(tipo) {
