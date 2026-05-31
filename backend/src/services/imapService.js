@@ -10,6 +10,11 @@ import { processarXml } from './xmlProcessor.js';
 const TMP_DIR = path.join(os.tmpdir(), 'imap_xml');
 let intervalHandle = null;
 
+function normalizeEmail(email) {
+  if (!email || typeof email !== 'string') return '';
+  return email.trim().toLowerCase().replace(/["'<>]/g, '');
+}
+
 function ensureTmpDir() {
   try {
     if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
@@ -150,19 +155,21 @@ async function checkMailbox(config) {
                   emailDate = parsed.date || null;
 
                   if (remetente_email) {
-                    const fromAddr = emailFrom;
-                    if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
-                      console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
+                    const fromAddr = normalizeEmail(emailFrom);
+                    const configAddr = normalizeEmail(remetente_email);
+                    if (fromAddr && fromAddr !== configAddr) {
+                      console.log(`[IMAP] Ignorado: from="${fromAddr}" ≠ config="${configAddr}"`);
                       skipped = true;
                       logStatus = 'ignored';
                       return;
                     }
                     if (!fromAddr) {
-                      console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
+                      console.log(`[IMAP] Ignorado: sem remetente (config="${configAddr}")`);
                       skipped = true;
                       logStatus = 'ignored';
                       return;
                     }
+                    console.log(`[IMAP] Remetente confere: "${fromAddr}" — processando`);
                   }
 
                   const attachments = parsed.attachments || [];
