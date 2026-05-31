@@ -19,13 +19,22 @@ function ensureTmpDir() {
 }
 
 async function getActiveImapConfigs() {
-  const { rows } = await query(`
-    SELECT ic.*, t.nome AS transportadora_nome
-    FROM imap_config ic
-    JOIN transportadoras t ON t.id = ic.transportadora_id
-    WHERE ic.active = true
-  `);
-  return rows;
+  try {
+    const { rows } = await query(`
+      SELECT ic.*, t.nome AS transportadora_nome
+      FROM imap_config ic
+      JOIN transportadoras t ON t.id = ic.transportadora_id
+      WHERE ic.active = true
+    `);
+    return rows;
+  } catch (err) {
+    if (err.code === '42501') {
+      console.error('[IMAP] Permissão negada na tabela imap_config. Execute a migration 009_fix_imap_permissions.sql ou rode manualmente:');
+      console.error('  GRANT ALL PRIVILEGES ON TABLE imap_config TO escala_admin;');
+      console.error('  GRANT ALL PRIVILEGES ON SEQUENCE imap_config_id_seq TO escala_admin;');
+    }
+    throw err;
+  }
 }
 
 function processZip(buffer, transportadora_id) {
@@ -209,7 +218,15 @@ async function checkMailbox(config) {
 }
 
 export async function checkAllMailboxes() {
-  const configs = await getActiveImapConfigs();
+  let configs = [];
+  try {
+    configs = await getActiveImapConfigs();
+  } catch (err) {
+    if (err.code !== '42501') {
+      console.error('[IMAP] Erro ao buscar configurações IMAP:', err.message);
+    }
+    return;
+  }
   for (const config of configs) {
     try {
       await checkMailbox(config);
@@ -222,8 +239,18 @@ export async function checkAllMailboxes() {
 export function iniciarImapService() {
   ensureTmpDir();
   console.log('[IMAP] Serviço iniciado');
-  checkAllMailboxes();
-  intervalHandle = setInterval(checkAllMailboxes, 5 * 60 * 1000);
+  checkAllMailboxes().catch(err => {
+    if (err.code !== '42501') {
+      console.error('[IMAP] Erro na primeira verificação:', err.message);
+    }
+  });
+  intervalHandle = setInterval(() => {
+    checkAllMailboxes().catch(err => {
+      if (err.code !== '42501') {
+        console.error('[IMAP] Erro na verificação programada:', err.message);
+      }
+    });
+  }, 5 * 60 * 1000);
 }
 
 export function pararImapService() {
