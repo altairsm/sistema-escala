@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -11,6 +12,8 @@ import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import multer from 'multer';
 import { sendMail, templateAcesso, templateRecuperacao, clearSmtpCache } from './config/email.js';
+import { processarXml } from './services/xmlProcessor.js';
+import { iniciarImapService } from './services/imapService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1243,9 +1246,223 @@ app.get('/api/me/db-credentials', authMiddleware, transportadoraFilter, async (r
   } catch (err) { res.status(500).json({ error: 'Erro ao buscar credenciais' }); }
 });
 
-// ==================== UPLOAD DE ARQUIVOS ====================
+// ==================== CONFIG IMAP DA TRANSPORTADORA ====================
+app.get('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_check_interval, active, last_check_at FROM imap_config WHERE transportadora_id = $1',
+      [req.user.transportadora_id]
+    );
+    res.json(rows[0] || null);
+  } catch (err) { res.status(500).json({ error: 'Erro ao buscar config IMAP' }); }
+});
+
+app.put('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active } = req.body;
+  if (!imap_host || !imap_username) {
+    return res.status(400).json({ error: 'Host e usuário IMAP obrigatórios' });
+  }
+  try {
+    const { rows: existing } = await query(
+      'SELECT id, imap_password FROM imap_config WHERE transportadora_id = $1',
+      [req.user.transportadora_id]
+    );
+    const tid = req.user.transportadora_id;
+    const password = imap_password && imap_password !== '********'
+      ? imap_password
+      : (existing.length > 0 ? existing[0].imap_password : '');
+
+    if (existing.length > 0) {
+      await query(
+        `UPDATE imap_config SET imap_host=$1, imap_port=$2, imap_ssl=$3, imap_username=$4,
+         imap_password=$5, imap_check_interval=$6, active=$7, updated_at=NOW()
+         WHERE id=$8`,
+        [imap_host, imap_port || 993, imap_ssl !== false, imap_username, password,
+         imap_check_interval || 5, active !== false, existing[0].id]
+      );
+    } else {
+      await query(
+        `INSERT INTO imap_config (transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [tid, imap_host, imap_port || 993, imap_ssl !== false, imap_username, password,
+         imap_check_interval || 5, active !== false]
+      );
+    }
+    res.json({ message: 'Configuração IMAP salva' });
+  } catch (err) {
+    console.error('Erro ao salvar IMAP:', err);
+    res.status(500).json({ error: 'Erro ao salvar configuração IMAP' });
+  }
+});
+
+// ==================== IMPORTAR XML (NF-e CASAS BAHIA) ====================
 const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
+app.post('/api/importar-xml', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const buffer = fs.readFileSync(req.file.path);
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let xmlContents = [];
+
+    if (ext === '.zip') {
+      const AdmZip = (await import('adm-zip')).default;
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries();
+      for (const entry of entries) {
+        if (entry.entryName.endsWith('.xml') && !entry.isDirectory) {
+          xmlContents.push(entry.getData().toString('utf8'));
+        }
+      }
+    } else if (ext === '.xml') {
+      xmlContents.push(buffer.toString('utf8'));
+    } else {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'Formato não suportado. Envie .xml ou .zip' });
+    }
+
+    let inseridas = 0, atualizadas = 0;
+    const erros = [];
+
+    for (const xml of xmlContents) {
+      const result = await processarXml(xml, req.user.transportadora_id);
+      if (result.error) {
+        erros.push(`NF ${result.chaveNf || '?'}: ${result.error}`);
+      } else if (result.inserted) {
+        inseridas++;
+      } else {
+        atualizadas++;
+      }
+    }
+
+    fs.unlink(req.file.path, () => {});
+
+    res.json({ message: 'Importação XML concluída', inseridas, atualizadas, erros: erros.length > 0 ? erros : undefined });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao importar XML', details: err.message });
+  }
+});
+
+// ==================== IMPORTAR CARGAS VIA XLSX ====================
+app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+  try {
+    const { rows: [transp] } = await query(
+      'SELECT cod_transp FROM transportadoras WHERE id = $1',
+      [req.user.transportadora_id]
+    );
+    if (!transp || !transp.cod_transp) {
+      return res.status(400).json({ error: 'Transportadora sem cod_transp configurado' });
+    }
+    const codTranspEsperado = transp.cod_transp;
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(req.file.path);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return res.status(400).json({ error: 'Planilha vazia' });
+
+    const headerRow = sheet.getRow(1);
+    const headers = [];
+    headerRow.eachCell({ includeEmpty: false }, (cell) => {
+      headers.push(cell.text?.toString().trim());
+    });
+
+    const colMap = {};
+    headers.forEach((h, i) => { colMap[h] = i + 1; });
+
+    if (!colMap['CARGA']) {
+      return res.status(400).json({ error: 'Coluna CARGA não encontrada no cabeçalho' });
+    }
+
+    function cell(rowNum, headerName) {
+      const col = colMap[headerName];
+      return col ? sheet.getRow(rowNum).getCell(col) : null;
+    }
+
+    function serialToDate(serial) {
+      if (!serial || typeof serial !== 'number') return null;
+      const base = new Date(1900, 0, 1);
+      const d = new Date(base.getTime() + (serial - 2) * 86400000);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    let inseridas = 0, atualizadas = 0, ignoradas = 0;
+    const erros = [];
+
+    for (let r = 2; r <= sheet.rowCount; r++) {
+      const carga = cell(r, 'CARGA')?.text?.toString().trim();
+      if (!carga) continue;
+
+      const codTranspLinha = cell(r, 'CÓD. TRANSP.')?.text?.toString().trim();
+      if (codTranspLinha !== codTranspEsperado) { ignoradas++; continue; }
+
+      const dataSerial = cell(r, 'DATA ENTREGA')?.value;
+      let dataEntrega = null;
+      if (typeof dataSerial === 'number') {
+        dataEntrega = serialToDate(dataSerial);
+      } else if (dataSerial instanceof Date) {
+        const d = dataSerial;
+        dataEntrega = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+
+      const qtdEntg = parseInt(cell(r, 'QTD ENTG')?.text, 10) || 0;
+      const cub = parseFloat(cell(r, 'CUB.')?.text?.replace(',', '.')) || null;
+      const regiao = cell(r, 'REGIÃO')?.text?.toString().trim() || null;
+      const rota = cell(r, 'ROTA')?.text?.toString().trim() || null;
+      const transportadora = cell(r, 'TRANSPORTADORA')?.text?.toString().trim() || null;
+      const tipo = cell(r, 'TIPO')?.text?.toString().trim() || null;
+      const regiaoNome = cell(r, 'REGIÃO NOME')?.text?.toString().trim() || null;
+      const identificacao = cell(r, 'IDENTIFICAÇÃO')?.text?.toString().trim() || null;
+      let box = parseInt(cell(r, 'BOX')?.text, 10);
+      if (isNaN(box) || box < 0 || box > 999) box = null;
+
+      try {
+        const { rows: upserted } = await query(`
+          WITH updated AS (
+            UPDATE cargas SET
+              data_entrega = $2, qtd_entg = $3, cub = $4, regiao = $5,
+              rota = $6, transportadora = $7, tipo = $8, regiao_nome = $9,
+              identificacao = $10, box = $11, cod_transp = $12,
+              updated_at = NOW()
+            WHERE transportadora_id = $13 AND carga = $1
+            RETURNING id
+          )
+          INSERT INTO cargas (transportadora_id, carga, data_entrega, qtd_entg, cub,
+            regiao, rota, transportadora, tipo, regiao_nome, identificacao, box, cod_transp)
+          SELECT $13, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          WHERE NOT EXISTS (SELECT 1 FROM updated)
+          RETURNING 'inserted' AS action
+          UNION ALL
+          SELECT 'updated' FROM updated
+        `, [
+          carga, dataEntrega, qtdEntg, cub,
+          regiao, rota, transportadora, tipo, regiaoNome,
+          identificacao, box, codTranspLinha,
+          req.user.transportadora_id
+        ]);
+        if (upserted[0]?.action === 'inserted') inseridas++;
+        else atualizadas++;
+      } catch (err) {
+        erros.push(`Linha ${r} (carga ${carga}): ${err.message}`);
+      }
+    }
+
+    // Cleanup
+    fs.unlink(req.file.path, () => {});
+
+    res.json({
+      message: `Importação concluída`,
+      inseridas,
+      atualizadas,
+      ignoradas,
+      erros: erros.length > 0 ? erros : undefined
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao importar arquivo', details: err.message });
+  }
+});
+
+// ==================== UPLOAD DE ARQUIVOS ====================
 app.post('/api/upload', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
   try {
@@ -1279,4 +1496,5 @@ app.use(express.static(path.join(__dirname, '../../frontend/public')));
 // ==================== START ====================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend rodando na porta ${PORT}`);
+  iniciarImapService();
 });

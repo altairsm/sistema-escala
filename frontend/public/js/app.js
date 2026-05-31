@@ -717,6 +717,7 @@ function renderContent() {
     renderIndicadores, renderAdminTransportadora, renderArquivo
   ];
   el.innerHTML = renderers[activeTab]();
+  if (activeTab === 7) setTimeout(carregarImapStatus, 50);
 }
 
 // ==================== PROGRAMAÇÃO ====================
@@ -1362,8 +1363,124 @@ function renderAdminTransportadora() {
         </div>` : ''}
       </div>
     </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📬 Configuração IMAP (Email XML NF-e)</div>
+        <button class="btn btn-sm btn-warning" onclick="showImapConfig()">⚙️ Configurar</button>
+      </div>
+      <div id="imap-status-card" style="font-size:0.85em;color:var(--gray)">Carregando...</div>
+    </div>
   `;
 }
+
+async function carregarImapStatus() {
+  const el = document.getElementById('imap-status-card');
+  if (!el) return;
+  try {
+    const cfg = await apiGet('/me/imap-config');
+    if (!cfg) {
+      el.innerHTML = '<div class="empty-state" style="padding:12px">⚠️ IMAP não configurado</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Servidor</div>
+          <div>${cfg.imap_host}:${cfg.imap_port}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Usuário</div>
+          <div>${cfg.imap_username}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Status</div>
+          <div>${cfg.active ? '✅ Ativo' : '⏹ Parado'}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Última verificação</div>
+          <div>${cfg.last_check_at || '—'}</div>
+        </div>
+      </div>
+    `;
+  } catch {
+    if (el) el.innerHTML = '<span style="color:var(--red)">Erro ao carregar</span>';
+  }
+}
+
+window.showImapConfig = async function() {
+  const cfg = await apiGet('/me/imap-config');
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">📬 Configuração IMAP</div>
+      <div class="modal-row">
+        <label>Host IMAP *</label>
+        <input id="imap-host" value="${(cfg && cfg.imap_host) || ''}" placeholder="imap.seudominio.com.br">
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Porta</label>
+          <input type="number" id="imap-port" value="${(cfg && cfg.imap_port) || 993}">
+        </div>
+        <div style="flex:1;display:flex;align-items:flex-end;padding-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="imap-ssl" ${(!cfg || cfg.imap_ssl) ? 'checked' : ''}> SSL
+          </label>
+        </div>
+      </div>
+      <div class="modal-row">
+        <label>Usuário *</label>
+        <input id="imap-username" value="${(cfg && cfg.imap_username) || ''}" placeholder="email@dominio.com">
+      </div>
+      <div class="modal-row">
+        <label>Senha</label>
+        <input type="password" id="imap-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}">
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Intervalo (minutos)</label>
+          <input type="number" id="imap-interval" value="${(cfg && cfg.imap_check_interval) || 5}" min="1" max="60">
+        </div>
+        <div style="flex:1;display:flex;align-items:flex-end;padding-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="imap-active" ${(!cfg || cfg.active) ? 'checked' : ''}> Ativo
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarImapConfig()">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarImapConfig = async function() {
+  const data = {
+    imap_host: document.getElementById('imap-host').value,
+    imap_port: parseInt(document.getElementById('imap-port').value) || 993,
+    imap_ssl: document.getElementById('imap-ssl').checked,
+    imap_username: document.getElementById('imap-username').value,
+    imap_password: document.getElementById('imap-password').value,
+    imap_check_interval: parseInt(document.getElementById('imap-interval').value) || 5,
+    active: document.getElementById('imap-active').checked,
+  };
+  if (!data.imap_host || !data.imap_username) {
+    alert('Host e usuário são obrigatórios');
+    return;
+  }
+  const res = await apiFetch('/me/imap-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (res.ok) {
+    closeModal();
+    carregarImapStatus();
+  } else {
+    const err = await res.json();
+    alert(err.error || 'Erro ao salvar');
+  }
+};
 
 window.abrirGestao = async function(tipo) {
   const token = getToken();
@@ -1549,32 +1666,123 @@ window.verDbCredentials = async function() {
   `);
 };
 
-// ==================== ARQUIVO ====================
+// ==================== ARQUIVO / IMPORTAR CARGAS E XML ====================
 function renderArquivo() {
   return `
     <div class="card">
-      <div class="card-header"><div class="card-title">📁 Upload de Arquivo</div></div>
-      <div class="drop-area" onclick="document.getElementById('file-input').click()">
-        📂 Clique para selecionar arquivo CSV/XLSX/XML<br><small>Máx 10MB</small>
-        <input type="file" id="file-input" style="display:none" onchange="uploadArquivo(this)">
+      <div class="card-header"><div class="card-title">📁 Importar Cargas (XLSX)</div></div>
+      <div class="drop-area" onclick="document.getElementById('xlsx-input').click()">
+        📂 Clique para selecionar arquivo XLSX de Programação<br><small>Máx 10MB · Formato: Programação Transportador</small>
+        <input type="file" id="xlsx-input" style="display:none" accept=".xlsx" onchange="xlsxSelected(this)">
       </div>
-      <div id="upload-status" style="margin-top:12px"></div>
+      <div id="xlsx-info" style="margin-top:8px;font-size:0.9em;color:#888"></div>
+      <button id="btn-importar-xlsx" class="btn-primary" style="margin-top:12px;display:none" onclick="importarXlsx()">
+        ⬆️ Importar
+      </button>
+      <div id="xlsx-status" style="margin-top:12px"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><div class="card-title">📄 Importar XML NF-e (Casas Bahia / Via Varejo)</div></div>
+      <div class="drop-area" onclick="document.getElementById('xml-input').click()">
+        📂 Clique para selecionar arquivo XML ou .zip de NF-e<br><small>Máx 10MB · Aceita .xml ou .zip com múltiplos XMLs</small>
+        <input type="file" id="xml-input" style="display:none" accept=".xml,.zip" onchange="xmlSelected(this)">
+      </div>
+      <div id="xml-info" style="margin-top:8px;font-size:0.9em;color:#888"></div>
+      <button id="btn-importar-xml" class="btn-primary" style="margin-top:12px;display:none" onclick="importarXml()">
+        ⬆️ Importar XML
+      </button>
+      <div id="xml-status" style="margin-top:12px"></div>
     </div>
   `;
 }
 
-window.uploadArquivo = async function(input) {
+window.xlsxSelected = function(input) {
+  if (!input.files[0]) return;
+  document.getElementById('xlsx-info').textContent = `📎 ${input.files[0].name} (${(input.files[0].size / 1024).toFixed(1)} KB)`;
+  document.getElementById('btn-importar-xlsx').style.display = 'inline-block';
+};
+
+window.xmlSelected = function(input) {
+  if (!input.files[0]) return;
+  document.getElementById('xml-info').textContent = `📎 ${input.files[0].name} (${(input.files[0].size / 1024).toFixed(1)} KB)`;
+  document.getElementById('btn-importar-xml').style.display = 'inline-block';
+};
+
+window.importarXlsx = async function() {
+  const input = document.getElementById('xlsx-input');
   if (!input.files[0]) return;
   const formData = new FormData();
   formData.append('arquivo', input.files[0]);
-  formData.append('nome', input.files[0].name);
-  const el = document.getElementById('upload-status');
-  el.innerHTML = '<span class="badge badge-info">⏳ Enviando...</span>';
+  const el = document.getElementById('xlsx-status');
+  el.innerHTML = '<span class="badge badge-info">⏳ Importando...</span>';
+  document.getElementById('btn-importar-xlsx').disabled = true;
   try {
-    const res = await fetch(`${API}/upload`, { method: 'POST', headers: { 'Authorization': `Bearer ${getToken()}` }, body: formData });
-    el.innerHTML = res.ok ? '<span class="badge badge-success">✅ Arquivo enviado</span>' : '<span class="badge badge-danger">❌ Erro</span>';
-  } catch { el.innerHTML = '<span class="badge badge-danger">❌ Erro de conexão</span>'; }
+    const res = await fetch(`${API}/importar-cargas`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      el.innerHTML = `<span class="badge badge-danger">❌ ${err.error || 'Erro na importação'}</span>`;
+      return;
+    }
+    const data = await res.json();
+    let html = '<div style="margin-top:8px">';
+    html += `<span class="badge badge-success">✅ Inseridas: ${data.inseridas}</span> `;
+    html += `<span class="badge badge-info">🔄 Atualizadas: ${data.atualizadas}</span> `;
+    html += `<span class="badge badge-gray">⏭ Ignoradas: ${data.ignoradas}</span>`;
+    if (data.erros && data.erros.length > 0) {
+      html += '<div style="margin-top:8px;color:#e74c3c;font-size:0.85em"><strong>Erros:</strong><br>';
+      data.erros.forEach(e => { html += `${e}<br>`; });
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch {
+    el.innerHTML = '<span class="badge badge-danger">❌ Erro de conexão</span>';
+  }
+  document.getElementById('btn-importar-xlsx').disabled = false;
   input.value = '';
+  document.getElementById('xlsx-info').textContent = '';
+};
+
+window.importarXml = async function() {
+  const input = document.getElementById('xml-input');
+  if (!input.files[0]) return;
+  const formData = new FormData();
+  formData.append('arquivo', input.files[0]);
+  const el = document.getElementById('xml-status');
+  el.innerHTML = '<span class="badge badge-info">⏳ Importando...</span>';
+  document.getElementById('btn-importar-xml').disabled = true;
+  try {
+    const res = await fetch(`${API}/importar-xml`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      el.innerHTML = `<span class="badge badge-danger">❌ ${err.error || 'Erro na importação'}</span>`;
+      return;
+    }
+    const data = await res.json();
+    let html = '<div style="margin-top:8px">';
+    html += `<span class="badge badge-success">✅ Inseridas: ${data.inseridas}</span> `;
+    html += `<span class="badge badge-info">🔄 Atualizadas: ${data.atualizadas}</span> `;
+    if (data.erros && data.erros.length > 0) {
+      html += '<div style="margin-top:8px;color:#e74c3c;font-size:0.85em"><strong>Erros:</strong><br>';
+      data.erros.forEach(e => { html += `${e}<br>`; });
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch {
+    el.innerHTML = '<span class="badge badge-danger">❌ Erro de conexão</span>';
+  }
+  document.getElementById('btn-importar-xml').disabled = false;
+  input.value = '';
+  document.getElementById('xml-info').textContent = '';
 };
 
 // ==================== UTILS ====================

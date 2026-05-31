@@ -1,0 +1,3595 @@
+{
+  "name": "xml Casas Bahia",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        1184
+      ],
+      "id": "2020dca9-fbb5-4e6f-9826-3e6ace0484e8",
+      "name": "XML6"
+    },
+    {
+      "parameters": {
+        "outputPrefix": "="
+      },
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        -1296,
+        1232
+      ],
+      "id": "b5fb7169-0c4e-4118-8c12-11846ce72014",
+      "name": "Compression"
+    },
+    {
+      "parameters": {
+        "bucketName": "mpccoleta",
+        "fileKey": "=xmlviaemail.zip",
+        "binaryPropertyName": "=data"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1520,
+        1232
+      ],
+      "id": "aaa9a9a4-6a14-418c-b6cb-751b6e2af14f",
+      "name": "S3 Download1",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "xml",
+        "binaryPropertyName": "={{Object.keys($binary).last()}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        1184
+      ],
+      "id": "d3148583-b6ff-4ca9-af94-e489d400a616",
+      "name": "Extract from File1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me1",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        992
+      ],
+      "id": "7252f798-5ce4-411b-9e78-4a316e7f3f92"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "$binary",
+        "include": "allOtherFields",
+        "options": {
+          "includeBinary": true
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1072,
+        1232
+      ],
+      "id": "b297252d-8588-4fb3-a8c8-baa693d82443",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -848,
+        1232
+      ],
+      "id": "a6842b73-c125-42f3-8867-30501af9e6b4",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "mpccoleta",
+        "fileName": "=xmlviaemail.zip",
+        "binaryPropertyName": "=attachment_0",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        1232
+      ],
+      "id": "425009b4-bd1c-4de1-8b91-bf8aae4bfb72",
+      "name": "S3",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        -2416,
+        1344
+      ],
+      "id": "6c86a093-9313-4f38-ae73-bd506d3a0643",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "km7TqVBSPWJ9Rr6Z",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ca48a98f-db35-405f-a027-3452eb8adeb7",
+              "leftValue": "={{ $json.metadata['return-path'] }}",
+              "rightValue": "nfe@mailer.via.com.br",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "07569be8-28a8-412e-92ac-f9148719c25e",
+              "leftValue": "={{ $json.metadata['return-path'] }}",
+              "rightValue": "operacional.via@transcarneiro.com.br",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -2192,
+        1344
+      ],
+      "id": "668ec6cc-d2bd-4ea4-bd47-08a2ea87dd6e",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.subject }}",
+                    "rightValue": "NF-e",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "de94e19e-acdd-4e6c-845e-4e2a276465a7"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "xml"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "2936aa32-a8d9-491d-ba26-6af82344e7ca",
+                    "leftValue": "={{ $json.subject }}",
+                    "rightValue": "Notas Fiscais Eletrônicas",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "zip"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1968,
+        1344
+      ],
+      "id": "736d8409-1699-447b-bcc9-17badefd3763",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "bucketName": "mpccoleta",
+        "fileKey": "=xmlviaemail.zip",
+        "binaryPropertyName": "=data"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -848,
+        1616
+      ],
+      "id": "bd941434-c7ba-4744-b220-bed977da2567",
+      "name": "S3 Download",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "mpccoleta",
+        "fileName": "=xmlviaemail.zip",
+        "binaryPropertyName": "=attachment_0",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1296,
+        1552
+      ],
+      "id": "3c3f81cb-f8a6-4350-bd10-db09e7e8722f",
+      "name": "S31",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1072,
+        1552
+      ],
+      "id": "885ed519-ec72-43b3-bdac-31bd90e49bc4",
+      "name": "Wait1",
+      "webhookId": "70c239e0-eec0-4402-8d16-477820ce8672"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "VENDA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "f8b60053-7cf9-4ff7-96c7-635b8a571bf6"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VENDA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "440e7bfe-0023-4287-9829-dc40415db557",
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "VENDA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Não VENDA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -416,
+        1344
+      ],
+      "id": "6543da5b-0a27-4a6c-8a4d-b7f25399aa22",
+      "name": "Switch1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}",
+            "Chave NF": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        672
+      ],
+      "id": "11523200-b04e-4062-a882-78ff3553c34c",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}",
+            "Chave NF": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        1632
+      ],
+      "id": "3e789758-3b53-4d80-8a35-0315cd47445b",
+      "name": "Append or update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "COLETA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "d6d2aa77-e0a2-4832-912a-7e9c072a4d69"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLETA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "23ab3cc7-8917-41c1-ba5b-9fd230f9e75f",
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "DEVOLUCAO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DEVOLUCAO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4a3573c5-1483-4e5a-a8d1-cd956b7936be",
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "VENDA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VENDA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -176,
+        1120
+      ],
+      "id": "4fd8d741-6f0d-4c81-a38e-0cd273275c0f",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numero }}",
+            "filial": 0,
+            "cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "confirma_entrega",
+              "displayName": "confirma_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "reentrega",
+              "displayName": "reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "devolucao",
+              "displayName": "devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "motivo_insucesso",
+              "displayName": "motivo_insucesso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_reentrega",
+              "displayName": "status_reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_devolucao",
+              "displayName": "status_devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        272,
+        1248
+      ],
+      "id": "5c6fdebd-bbab-4ae5-b1ef-69eab2b0c3dd",
+      "name": "Postgres1",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}",
+            "Chave NF": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        1056
+      ],
+      "id": "5210bf57-8e8e-4f97-84c5-8a6d4e3882ad",
+      "name": "Append or update row in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numeroPedido }}",
+            "cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "filial": "={{ $json.data.filialVenda }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        272,
+        1440
+      ],
+      "id": "05764b3a-2724-4af8-9f42-685a8f5c9031",
+      "name": "Postgres2",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML6').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /STD NUMERO:\\s(\\d+).*?CARGA:\\s(\\d+).*?BOX:\\s(\\d+).*?MICRO ZONA:\\s([A-Z\\s]+\\d+).*?de\\s(\\d{2}-\\d{2}-\\d{4})/;\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      numero: match[1],\n      numeroCarga: match[2],\n      box: match[3],\n      microZona: match[4],\n      dataEntrega: match[5]\n    }\n  };\n} else {\n  return { data: null };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        768
+      ],
+      "id": "4d7b5954-93cb-407f-b10f-e789c37ada60",
+      "name": "Code coleta",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML6').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /CARGA:\\s(\\d+).*?BOX:\\s(\\d+)/;\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      numeroCarga: match[1],\n      box: match[2]\n    }\n  };\n} else {\n  return { data: null };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        1152
+      ],
+      "id": "04f12268-6f80-4df0-8712-7b12cab82603",
+      "name": "Code dev",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML6').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /FILIAL VENDA:\\s(\\d+).*?N\\.PEDIDO:(\\d+).*?CARGA:\\s(\\d+).*?BOX:\\s(\\d+).*?MICRO ZONA:\\s([A-Z\\s]+\\d+).*?DATA DE ENTREGA:\\s([\\w\\s\\d]+)/;\n\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      filialVenda: match[1], // Captura o número da filial de venda\n      numeroPedido: match[2], // Captura o número do pedido\n      numeroCarga: match[3], // Captura o número da carga\n      box: match[4], // Captura o número do BOX\n      microZona: match[5], // Captura a micro zona de forma precisa\n      dataEntrega: match[6] // Captura corretamente a DATA DE ENTREGA\n    }\n  };\n} else {\n  return { data: null }; // Caso não encontre correspondências\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        1536
+      ],
+      "id": "7bad9a10-744d-4936-a929-fa6472eeac73",
+      "name": "Code venda",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "xml",
+        "binaryPropertyName": "={{Object.keys($binary).last()}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        1680
+      ],
+      "id": "c3dce0c8-d429-45aa-8497-1793f852a506",
+      "name": "Extract from File",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        1696
+      ],
+      "id": "6dd8d23a-de08-4ff7-a37b-142f48e8f66a",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numero }}",
+            "filial": 0,
+            "cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "confirma_entrega",
+              "displayName": "confirma_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "reentrega",
+              "displayName": "reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "devolucao",
+              "displayName": "devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "motivo_insucesso",
+              "displayName": "motivo_insucesso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_reentrega",
+              "displayName": "status_reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_devolucao",
+              "displayName": "status_devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        1600
+      ],
+      "id": "44fdeed9-0683-4b00-9484-50ca299265a7",
+      "name": "Postgres3",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}",
+            "Chave NF": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        1408
+      ],
+      "id": "c6daaec1-3caf-463e-a35f-3d6ccc2a3075",
+      "name": "Append or update row in sheet3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}",
+            "Chave NF": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        2368
+      ],
+      "id": "55ae2ce8-137c-4c1b-96f7-b9c2d225f660",
+      "name": "Append or update row in sheet4",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "COLETA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "d6d2aa77-e0a2-4832-912a-7e9c072a4d69"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLETA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "23ab3cc7-8917-41c1-ba5b-9fd230f9e75f",
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "DEVOLUCAO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DEVOLUCAO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4a3573c5-1483-4e5a-a8d1-cd956b7936be",
+                    "leftValue": "={{ $json.nfeProc.NFe.infNFe.ide.natOp }}",
+                    "rightValue": "VENDA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VENDA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        1856
+      ],
+      "id": "09e37bbd-0368-44c2-af5d-87efa981b0c0",
+      "name": "Switch3"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numero }}",
+            "filial": 0,
+            "cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "confirma_entrega",
+              "displayName": "confirma_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "reentrega",
+              "displayName": "reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "devolucao",
+              "displayName": "devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "motivo_insucesso",
+              "displayName": "motivo_insucesso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_reentrega",
+              "displayName": "status_reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_devolucao",
+              "displayName": "status_devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        1984
+      ],
+      "id": "16682eff-f3f4-40ac-a5cf-8c25e3f0fa5a",
+      "name": "Postgres4",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY",
+          "mode": "list",
+          "cachedResultName": "NFs Casas Bahia",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Xml",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EhEl4B_HqfUSLZzelvjkwsxYaGLCkKDv529h1hHs5tY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi.toDateTime().format('dd/MM/yyyy') }}",
+            "NF": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "PV": "={{ $json.data.numeroPedido }}",
+            "Cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "Cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "Bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "FC": "={{ $json.data.numeroCarga }}",
+            "Box": "={{ $json.data.box }}",
+            "Filial V": "={{ $json.data.filialVenda }}",
+            "Micro zona": "={{ $json.data.microZona }}",
+            "Remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "Chave NF": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "Dia da entrega": "={{ $json.data.dataEntrega }}"
+          },
+          "matchingColumns": [
+            "NF"
+          ],
+          "schema": [
+            {
+              "id": "Data NF",
+              "displayName": "Data NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "FC",
+              "displayName": "FC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Box",
+              "displayName": "Box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave NF",
+              "displayName": "Chave NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NF",
+              "displayName": "NF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PV",
+              "displayName": "PV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Filial V",
+              "displayName": "Filial V",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cliente",
+              "displayName": "Cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cidade",
+              "displayName": "Cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bairro",
+              "displayName": "Bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Micro zona",
+              "displayName": "Micro zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Remessa",
+              "displayName": "Remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dia da entrega",
+              "displayName": "Dia da entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        1792
+      ],
+      "id": "0e53dcf4-78d4-4774-8df3-8aa3851cd415",
+      "name": "Append or update row in sheet5",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "fhFNTexPvm26AWEu",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numeroPedido }}",
+            "cliente": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML').item.json.nfeProc.NFe.infNFe.ide.natOp }}",
+            "filial": "={{ $json.data.filialVenda }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "confirma_entrega",
+              "displayName": "confirma_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "reentrega",
+              "displayName": "reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "devolucao",
+              "displayName": "devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "motivo_insucesso",
+              "displayName": "motivo_insucesso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_reentrega",
+              "displayName": "status_reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_devolucao",
+              "displayName": "status_devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        2176
+      ],
+      "id": "d35c9939-49cb-4077-a480-b56d6c8d9d6d",
+      "name": "Postgres5",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML6').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /STD NUMERO:\\s(\\d+).*?CARGA:\\s(\\d+).*?BOX:\\s(\\d+).*?MICRO ZONA:\\s([A-Z\\s]+\\d+).*?de\\s(\\d{2}-\\d{2}-\\d{4})/;\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      numero: match[1],\n      numeroCarga: match[2],\n      box: match[3],\n      microZona: match[4],\n      dataEntrega: match[5]\n    }\n  };\n} else {\n  return { data: null };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        1504
+      ],
+      "id": "e852a460-1406-45af-afd2-de41ee1fd595",
+      "name": "Code coleta1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML6').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /CARGA:\\s(\\d+).*?BOX:\\s(\\d+)/;\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      numeroCarga: match[1],\n      box: match[2]\n    }\n  };\n} else {\n  return { data: null };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        1888
+      ],
+      "id": "7d0ad9bd-5e50-452b-9d25-54540178c026",
+      "name": "Code dev1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('XML').first().json.nfeProc.NFe.infNFe.infAdic.infCpl; // Substitua \"texto\" pelo campo onde está o texto original\nconst regex = /FILIAL VENDA:\\s(\\d+).*?N\\.PEDIDO:(\\d+).*?CARGA:\\s(\\d+).*?BOX:\\s(\\d+).*?MICRO ZONA:\\s([A-Z\\s]+\\d+).*?DATA DE ENTREGA:\\s([\\w\\s\\d]+)/;\n\nconst match = texto.match(regex);\n\nif (match) {\n  return {\n    data: {\n      filialVenda: match[1], // Captura o número da filial de venda\n      numeroPedido: match[2], // Captura o número do pedido\n      numeroCarga: match[3], // Captura o número da carga\n      box: match[4], // Captura o número do BOX\n      microZona: match[5], // Captura a micro zona de forma precisa\n      dataEntrega: match[6] // Captura corretamente a DATA DE ENTREGA\n    }\n  };\n} else {\n  return { data: null }; // Caso não encontre correspondências\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        2272
+      ],
+      "id": "1f802be3-2651-471e-9c7c-e3bfdb75092b",
+      "name": "Code venda1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "entregas",
+          "mode": "list",
+          "cachedResultName": "entregas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chave_nf": "={{ $('XML6').item.json.nfeProc.protNFe.infProt.chNFe }}",
+            "nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.nNF }}",
+            "data_nf": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.dhEmi }}",
+            "fc": "={{ $json.data.numeroCarga }}",
+            "box": "={{ $json.data.box }}",
+            "nf_pv": "={{ $json.data.numero }}",
+            "filial": 0,
+            "cliente": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.xNome }}",
+            "cidade": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xMun }}",
+            "bairro": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.dest.enderDest.xBairro }}",
+            "micro_zona": "={{ $json.data.microZona }}",
+            "remessa": "={{ $('XML6').item.json.nfeProc.NFe.infNFe.ide.natOp }}"
+          },
+          "matchingColumns": [
+            "chave_nf"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "data_nf",
+              "displayName": "data_nf",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "fc",
+              "displayName": "fc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "chave_nf",
+              "displayName": "chave_nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nf",
+              "displayName": "nf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "nf_pv",
+              "displayName": "nf_pv",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "filial",
+              "displayName": "filial",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cliente",
+              "displayName": "cliente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "cidade",
+              "displayName": "cidade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bairro",
+              "displayName": "bairro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "micro_zona",
+              "displayName": "micro_zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "remessa",
+              "displayName": "remessa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "dia_entrega",
+              "displayName": "dia_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "confirma_entrega",
+              "displayName": "confirma_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "reentrega",
+              "displayName": "reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "devolucao",
+              "displayName": "devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "motivo_insucesso",
+              "displayName": "motivo_insucesso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_reentrega",
+              "displayName": "status_reentrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status_devolucao",
+              "displayName": "status_devolucao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        288,
+        864
+      ],
+      "id": "c4d7583a-9f69-478a-bb49-d7823e4a2543",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {
+    "Email Trigger (IMAP)": [
+      {
+        "json": {
+          "textHtml": "",
+          "textPlain": "\r\n\r\n-------- Mensagem original --------\r\nAssunto: Notas Fiscais Eletrônicas. Emitente: GRUPO CASAS BAHIA SA\r\nData: 28-05-2026 20:47\r\nDe: Nota Fiscal Eletrônica <nfe@mailer.via.com.br>\r\nPara: operacional.via@transcarneiro.com.br\r\n\r\n  Prezado(a),\r\n\r\nObrigado pela sua compra.\r\n\r\nVoc� est� recebendo suas Notas Fiscais Eletr�nicas!\r\n\r\n  Dados das Notas Fiscais:\r\n\r\n\t\tDestinat�rio\r\n\t\tCPF/CNPJ\r\n\t\tNota\r\n\t\tS�rie\r\n\t\tChave de Acesso\r\n\t\tData Emiss�o\r\n\t\tEmitente\r\n\t\tCNPJ Emitente\r\n\r\n\t\tCLEUNICE SANTOS FERREIRA\r\n\t\t15716244572\r\n\t\t9262168\r\n\t\t0\r\n\t\t29260533041260139405550000092621681122045329\r\n\t\t28/05/2026\r\n\t\tGRUPO CASAS BAHIA SA\r\n\t\t33041260139405\r\n\r\n\t\tSAMUEL HUNGRIA\r\n\t\t04776007517\r\n\t\t4126154\r\n\t\t0\r\n\t\t29260533041260141493550000041261541122045320\r\n\t\t28/05/2026\r\n\t\tGRUPO CASAS BAHIA SA\r\n\t\t33041260141493\r\n\r\n\t\tINGRED DOS SANTOS DO CARMO\r\n\t\t08056068589\r\n\t\t9262167\r\n\t\t0\r\n\t\t29260533041260139405550000092621671122045321\r\n\t\t28/05/2026\r\n\t\tGRUPO CASAS BAHIA SA\r\n\t\t33041260139405",
+          "metadata": {
+            "return-path": "<operacional.via@transcarneiro.com.br>",
+            "delivered-to": "operacional.via@transcarneiro.com.br",
+            "received": "from br346.hostgator.com.br\tby br346.hostgator.com.br with LMTP\tid mEofK3nNGmrFQAoAqQrilA\t(envelope-from <operacional.via@transcarneiro.com.br>)\tfor <operacional.via@transcarneiro.com.br>; Sat, 30 May 2026 08:43:53 -0300",
+            "envelope-to": "operacional.via@transcarneiro.com.br",
+            "delivery-date": "Sat, 30 May 2026 08:43:53 -0300",
+            "mime-version": "1.0",
+            "in-reply-to": "<457356124.1780012061008.JavaMail.sistranf@trnfep3a>",
+            "references": "<457356124.1780012061008.JavaMail.sistranf@trnfep3a>",
+            "user-agent": "Roundcube Webmail/1.6.11",
+            "message-id": "<6456ea07c7fd2db12efad2bad3b9bb3d@transcarneiro.com.br>",
+            "x-sender": "operacional.via@transcarneiro.com.br",
+            "content-type": "multipart/mixed; boundary=\"=_edf92cebf6181ef4c9db8dedc2adcd6a\""
+          },
+          "attributes": {
+            "uid": 87312
+          },
+          "date": "Sat, 30 May 2026 08:43:53 -0300",
+          "from": "operacional.via@transcarneiro.com.br",
+          "to": "Operacional Via <operacional.via@transcarneiro.com.br>",
+          "subject": "Fwd: Notas Fiscais Eletrônicas. Emitente: GRUPO CASAS BAHIA SA"
+        },
+        "binary": {
+          "attachment_0": {
+            "mimeType": "application/zip",
+            "fileExtension": "zip",
+            "data": "database",
+            "fileName": "NFe.zip",
+            "id": "database:d4782d33-395d-4395-9af7-700f4a67c2b2",
+            "fileSize": "18.1 kB",
+            "bytes": 18088
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "XML6": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compression": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3 Download1": {
+      "main": [
+        [
+          {
+            "node": "Compression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "XML6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Replace Me1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3": {
+      "main": [
+        [
+          {
+            "node": "S3 Download1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S31": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "S3 Download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "S31",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3 Download": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "Code coleta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code dev",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code venda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code coleta": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code dev": {
+      "main": [
+        [
+          {
+            "node": "Postgres1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code venda": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Postgres2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch3": {
+      "main": [
+        [
+          {
+            "node": "Code coleta1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code dev1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code venda1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code coleta1": {
+      "main": [
+        [
+          {
+            "node": "Postgres3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code dev1": {
+      "main": [
+        [
+          {
+            "node": "Postgres4",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code venda1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet4",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Postgres5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "Switch3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "573c7c94-80a6-4ab9-807f-1e1315e944ac",
+  "meta": {
+    "instanceId": "e1f2216d7347cf769726185925ae07114c4973b80c7c25593f572a165e156a73"
+  },
+  "id": "So9MdD2sUpSIjHQ5",
+  "tags": []
+}

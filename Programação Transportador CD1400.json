@@ -1,0 +1,841 @@
+{
+  "name": "Programação Transportador CD1400",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "arquivo",
+        "options": {
+          "headerRow": true,
+          "range": "2",
+          "rawData": true,
+          "readAsString": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        384,
+        96
+      ],
+      "id": "f70bb4ce-ef42-4ca2-a018-be03d782044c",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        96
+      ],
+      "id": "f2633b82-4d50-4f09-a39f-e7511861287c",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "km7TqVBSPWJ9Rr6Z",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ca48a98f-db35-405f-a027-3452eb8adeb7",
+              "leftValue": "={{ $json.subject }}",
+              "rightValue": "Faturamento 1400",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -288,
+        96
+      ],
+      "id": "9782e1b6-b6a7-4d7b-a006-bc63bc648ad1",
+      "name": "Filter1"
+    },
+    {
+      "parameters": {
+        "bucketName": "mpccoleta",
+        "fileKey": "=Faturamento.zip",
+        "binaryPropertyName": "=arquivo"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        160,
+        96
+      ],
+      "id": "215c747b-8a5d-4a62-b7be-3bad1390c1e8",
+      "name": "S3 Download1",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "mpccoleta",
+        "fileName": "=Faturamento.zip",
+        "binaryPropertyName": "=attachment_0",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        96
+      ],
+      "id": "e51f5c05-77a1-444b-9272-64ca22dba591",
+      "name": "S3",
+      "credentials": {
+        "s3": {
+          "id": "MZFsRDcIfk9KoNqB",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "cargas",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "cod_transp": "={{ $json['CÓD. TRANSP.'] }}",
+            "qtd_entg": "={{ $json['QTD ENTG'] }}",
+            "cub": "={{ $json['CUB.'] }}",
+            "regiao": "={{ $json['REGIÃO'] }}",
+            "carga": "={{ $json.CARGA }}",
+            "rota": "={{ $json.ROTA }}",
+            "transportadora": "={{ $json.TRANSPORTADORA }}",
+            "tipo": "={{ $json.TIPO }}",
+            "regiao_nome": "={{ $json['REGIÃO NOME'] }}",
+            "identificacao": "={{ $json['IDENTIFICAÇÃO'] }}",
+            "data_entrega": "={{ $json['DATA ENTREGA ISO'] }}",
+            "confirma": false,
+            "confirma_equipe": false,
+            "box": "={{ $json.BOX }}"
+          },
+          "matchingColumns": [
+            "carga"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "carga",
+              "displayName": "carga",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "data_entrega",
+              "displayName": "data_entrega",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "cod_transp",
+              "displayName": "cod_transp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "transportadora",
+              "displayName": "transportadora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "rota",
+              "displayName": "rota",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "qtd_entg",
+              "displayName": "qtd_entg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "cub",
+              "displayName": "cub",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "tipo",
+              "displayName": "tipo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "regiao",
+              "displayName": "regiao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "regiao_nome",
+              "displayName": "regiao_nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "identificacao",
+              "displayName": "identificacao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "placa",
+              "displayName": "placa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "confirma",
+              "displayName": "confirma",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "motorista",
+              "displayName": "motorista",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "confirma_equipe",
+              "displayName": "confirma_equipe",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ajudante_01",
+              "displayName": "ajudante_01",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ajudante_02",
+              "displayName": "ajudante_02",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        928,
+        48
+      ],
+      "id": "e1e02aaa-2606-4d3d-9e3b-6ed380bfeeca",
+      "name": "Postgres2",
+      "credentials": {
+        "postgres": {
+          "id": "LmmOBTn4GYJbk1AO",
+          "name": "ViaVarejo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Este código roda para cada item do array vindo do Excel\nreturn items.map(item => {\n  const excelSerial = item.json['DATA ENTREGA'];\n\n  // Se não houver número, apenas retorna o item original\n  if (!excelSerial) {\n    return item;\n  }\n\n  // Base do Excel: 1900-01-01\n  const baseDate = new Date(1900, 0, 1);\n\n  // Ajuste do bug do Excel (ano 1900 considerado bissexto)\n  const jsDate = new Date(baseDate.getTime() + (excelSerial - 2) * 24 * 60 * 60 * 1000);\n\n  // Formatar para ISO (YYYY-MM-DD)\n  const dia = jsDate.getDate().toString().padStart(2, '0');\n  const mes = (jsDate.getMonth() + 1).toString().padStart(2, '0');\n  const ano = jsDate.getFullYear();\n  const dataISO = `${ano}-${mes}-${dia}`;\n\n  // Formatar para BR (DD/MM/YYYY)\n  const dataBR = `${dia}/${mes}/${ano}`;\n\n  // Retorna todas as colunas originais + as datas convertidas\n  return {\n    json: {\n      ...item.json,\n      'DATA ENTREGA ISO': dataISO,\n      'DATA ENTREGA BR': dataBR\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        96
+      ],
+      "id": "abd24261-b9ba-4986-a71c-f2255928a540",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        64,
+        -160
+      ],
+      "id": "32230345-2214-4d72-88b4-4f0722993658",
+      "name": "Webhook",
+      "webhookId": "a481e16c-9383-4c53-8fcf-341209563fc8"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "cargas",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "cod_transp": "={{ $json['CÓD. TRANSP.'] }}",
+            "qtd_entg": "={{ $json['QTD ENTG'] }}",
+            "cub": "={{ $json['CUB.'] }}",
+            "regiao": "={{ $json['REGIÃO'] }}",
+            "carga": "={{ $json.CARGA }}",
+            "rota": "={{ $json.ROTA }}",
+            "transportadora": "={{ $json.TRANSPORTADORA }}",
+            "tipo": "={{ $json.TIPO }}",
+            "regiao_nome": "={{ $json['REGIÃO NOME'] }}",
+            "identificacao": "={{ $json['IDENTIFICAÇÃO'] }}",
+            "data_entrega": "={{ $json['DATA ENTREGA ISO'] }}",
+            "confirma": false,
+            "confirma_equipe": false,
+            "box": "={{ $json.BOX }}"
+          },
+          "matchingColumns": [
+            "carga"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "carga",
+              "displayName": "carga",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "data_entrega",
+              "displayName": "data_entrega",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "box",
+              "displayName": "box",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "cod_transp",
+              "displayName": "cod_transp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "transportadora",
+              "displayName": "transportadora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "rota",
+              "displayName": "rota",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "qtd_entg",
+              "displayName": "qtd_entg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "cub",
+              "displayName": "cub",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "tipo",
+              "displayName": "tipo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "regiao",
+              "displayName": "regiao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "regiao_nome",
+              "displayName": "regiao_nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "identificacao",
+              "displayName": "identificacao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "placa",
+              "displayName": "placa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "confirma",
+              "displayName": "confirma",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "motorista",
+              "displayName": "motorista",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "confirma_equipe",
+              "displayName": "confirma_equipe",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ajudante_01",
+              "displayName": "ajudante_01",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ajudante_02",
+              "displayName": "ajudante_02",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        896,
+        272
+      ],
+      "id": "af4cf330-133d-4ba7-8866-9687d134d10e",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "fr5N1eNPIZmZ9vKL",
+          "name": "Escala_oracle"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {
+    "Email Trigger (IMAP)": [
+      {
+        "json": {
+          "textHtml": "",
+          "textPlain": "\r\n\r\n-------- Mensagem original --------\r\nAssunto: Faturamento 1400 / Separação 28/05/2026 – Expedição 29/05/2026  \r\nS01 POLO + CAPITAL\r\nData: 28-05-2026 14:53\r\nDe: JORGE CARVALHO FRAGA DA GLORIA JUNIOR \r\n<jorge.carvalho@casasbahia.com.br>\r\nPara: \"PROG. E. CLIENTE - PESADO 1400\" \r\n<programaoentregacliente-pesado1400@viavarejo.onmicrosoft.com>\r\nCópia: VANDERSON DE JESUS BISPO DOS SANTOS \r\n<vanderson.santos@casasbahia.com.br>, JEFFERSON CONCEICAO DE OLIVEIRA \r\n<jefferson.oliveira@casasbahia.com.br>, JUCIENE BATISTA DOS SANTOS \r\nDOURADO <juciene.santos@casasbahia.com.br>, \"santananilson149@gmail.com\" \r\n<santananilson149@gmail.com>, PROGRAMAÇÃO - POLO \r\n<programao-polo@viavarejo.onmicrosoft.com>, \"lua.fre \r\nitas@engagelogistica.com.br\" <lua.freitas@engagelogistica.com.br>, \r\n'Vitor Jesus' <victor.jesus@grupolamonica.com.br>, 'Cibele Santos' \r\n<cibele.santos@grupolamonica.com.br>, \r\n\"rodrigo.lamonica@grupolamonica.com.br\" \r\n<rodrigo.lamonica@grupolamonica.com.br>, Programação - Capital \r\n<programaodeentregacd1400@viavarejo.onmicrosoft.com>, \r\n\"ms4615534@gmail.com\" <ms4615534@gmail.com>, Ronivaldo Batista \r\n<ronivaldo.batista@grupolamonica.com.br>, \r\n\"comercial@grupocarneiro.com.br\" <comercial@grupocarneiro.com.br>, \r\nMARLON DA SILVA PARANAGUA <marlon.paranagua@casasbahia.com.br>, \r\n\"marcos.nascimento@engagelogistica.com.br\" \r\n<marcos.nascimento@engagelogistica.com.br>, PEDRO FELLIPE SANTOS RIBEIRO \r\nDE FREITAS <pedro.freitas@casasbahia.com.br>, ALOISIO DE FREITAS GOMES \r\n<aloisio.freitas@casasbahia.com.br>, MARCUS VINICIUS ALMEIDA DA SILVA \r\n<marcus.dasilva@casasbahia.com.br>, LILIAN ARAUJO DA INCARNACAO \r\n<lilian.incarnacao@casasbahia.com.br>, \r\n\"diogo.vinicius@lsatransportes.com.br\" \r\n<diogo.vinicius@lsatransportes.com.br>, \r\n\"reuter.santana@lsatransportes.com.br\" \r\n<reuter.santana@lsatransportes.com.br>, WESDEN FREITAS DE ALMEIDA \r\n<wesden.almeida@casasbahia.com.br>, JANETE FARIAS BARROS \r\n<janete.barros@casasbahia.com.br>, \"Ubiratan Filho \" \r\n<operacional.via@transcarneiro.com.br>, \"clovis.operacao@gmail.com\" \r\n<clovis.operacao@gmail.com>, Nfe MP CARGAS <nfe@mpcargas.com.br>, S & C \r\nTRANSPORTES E LOGISTICA LTDA <sctransporteselogisticas@gmail.com>, \r\n\"drievani.brito@engagelogistica.com.br\" \r\n<drievani.brito@engagelogistica.com.br>, MAURICIO DOS SANTOS LIRA \r\n<mauricio.lira@casasbahia.com.br>, \r\n\"mauricio.lira@grupocasasbahia.com.br\" \r\n<fÃ¡bio.cardoso@viavarejo.com.br>, IGOR BATISTA DOS SANTOS \r\n<igor.batista@casasbahia.com.br>, ITALO CERQUEIRA \r\n<italosctransportes@gmail.com>, 'jefferson Silva' \r\n<jefferson.silva@engagelogistica.com.br>, 'Ricardo Santos S&C \r\nTransportes' <ricardo.juasctransportes@gmail.com>, LILIAN ARAUJO DA \r\nINCARNACAO <lilian.incarnacao@casasbahia.com.br>, VVLOG 1400 \r\n<vvlog1400@viavarejo.onmicrosoft.com>, MAURICIO DOS SANTOS LIRA \r\n<mauricio.lira@casasbahia.com.br>, \"expedicao.ssa@tlogne.com.br\" \r\n<expedicao.ssa@tlogne.com.br>, FABIO DE JESUS CARDOSO \r\n<fabio.cardoso@casasbahia.com.br>, MARIA ALINE CORDEIRO DE SOUSA \r\n<mariaaline.sousa@casasbahia.com.br>, \"Ms4615534@gmail.com.br\\\\\\\" \r\n<Ms4615534@gmail.com.br>mario.alves@logplace.com.br \r\nexpedicao.ssa@tlogne.com.br matheus.santana@tlogne.com.br \r\n\\\"mario.alves@logplace.com.br\" <mario.alves@logplace.com.br>, \r\n\"expedicao.ssa@tlogne.com.br\" <expedicao.ssa@tlogne.com.br>, \r\n\"\\\"\\\\\\\"matheus.santana@tlogne.com.br\\\" <matheus.santana@tlogne.com.br>\\\" \r\n<Eraldo.netomp@outlook.com> macedovh03@gmail.com \r\n\\\"expedicao.ssa@logplace.com.br\\\" \r\n<expedicao.ssa@logplace.com.br>macedovh03@gmail.com<hugo@mpcargas.com.br<natalia@mpcargas.com.br \r\nnilton.damasceno@engagelogistica.com.br macedovh03@gmail.com \r\nNatalia@mpcargas.com.br\" <nilton.damasceno@engagelogistica.com.br>, \r\n\"macedovh03@gmail.com\" <expedicao.ssa@logplace.com.br>, \r\n\"macedovh03@gmail.com\" <expedicao.ssa@logplace.com.br>, 'Marcos \r\nRodrigues' <marcos.rodrigues@grupolamonica.com.br>, Thiago Bahia - CAMS \r\nLogística <thiago.bahia@camslogistica.com.br>\r\n\r\n  Boa tarde!\r\nEm anexo cargas de S01 (POLO+ CAPITAL) faturadas.\r\n\r\n  Atenciosamente,\r\n\r\n  JORGE CARVALHO\r\n\r\n  Assistente de Logística\r\n\r\n  Regional- Nordeste/SP\r\n  Wave Teams\r\n\r\n  71992552675\r\n\r\n  jorge.carvalho@viavarejo.com.br\r\n\r\n  VIA - CAMAÇARI - BA (VVBA-1400)\r\n\r\n  _ _\r\n\r\n  * Esta mensagem e seus anexos podem conter informação confidencial ou\r\nprivilegiada, sendo seu sigilo protegido por lei. Caso tenha recebido\r\neste e-mail por engano, queira por favor informar imediatamente o\r\nremetente e apagá-lo de seus arquivos.\r\n* Conheça o Código de Conduta Ética do Grupo Casas Bahia, disponível\r\nem:\r\nhttps://ri.grupocasasbahia.com.br/governanca-corporativa/etica-e-compliance/.\r\n* Dúvidas e denúncias de irregularidades, por favor, contate nosso\r\nCanal de Denúncia: https://canaldedenuncia.grupocasasbahia.com.br/,\r\n0800 450 4504 ou canaldedenuncia@grupocasasbahia.com.br.\r\n* This message and its attachments may contain confidential or\r\nprivileged information protected by law. In case you have received it by\r\nmistake, please notify its sender and remove it from your archives.\r\n* Get to know the Casas Bahia Group Code of Ethical Conduct available\r\nat:\r\nhttps://ri.grupocasasbahia.com.br/governanca-corporativa/etica-e-compliance/.\r\n\r\n* Should you have any questions or reports of misconducts, please\r\ncontact our etic channel:\r\nhttps://canaldedenuncia.grupocasasbahia.com.br/, 0800 450 4504 or\r\ncanaldedenuncia@grupocasasbahia.com.br.",
+          "metadata": {
+            "return-path": "<operacional.via@transcarneiro.com.br>",
+            "delivered-to": "operacional.via@transcarneiro.com.br",
+            "received": "from br346.hostgator.com.br\tby br346.hostgator.com.br with LMTP\tid UHQULKC7Gmp49AcAqQrilA\t(envelope-from <operacional.via@transcarneiro.com.br>)\tfor <operacional.via@transcarneiro.com.br>; Sat, 30 May 2026 07:27:44 -0300",
+            "envelope-to": "operacional.via@transcarneiro.com.br",
+            "delivery-date": "Sat, 30 May 2026 07:27:44 -0300",
+            "mime-version": "1.0",
+            "in-reply-to": "<SCYP152MB78592AE940514114B75054E4DC092@SCYP152MB7859.LAMP152.PROD.OUTLOOK.COM>",
+            "references": "<SCYP152MB78592AE940514114B75054E4DC092@SCYP152MB7859.LAMP152.PROD.OUTLOOK.COM>",
+            "user-agent": "Roundcube Webmail/1.6.11",
+            "message-id": "<c4c0ae2925ce40c6c95fca3982976d96@transcarneiro.com.br>",
+            "x-sender": "operacional.via@transcarneiro.com.br",
+            "content-type": "multipart/mixed; boundary=\"=_9dc9dfab489690da807f726c0916b364\""
+          },
+          "attributes": {
+            "uid": 87311
+          },
+          "date": "Sat, 30 May 2026 07:27:44 -0300",
+          "from": "operacional.via@transcarneiro.com.br",
+          "to": "operacional.via@transcarneiro.com.br",
+          "subject": "Fwd: Faturamento 1400 / Separação 28/05/2026 – Expedição 29/05/2026  S01 POLO + CAPITAL"
+        },
+        "binary": {
+          "attachment_0": {
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "fileExtension": "xlsx",
+            "data": "database",
+            "id": "database:0eac1632-88cd-4cbc-9e0e-2a91c2633939",
+            "fileSize": "36.9 kB",
+            "bytes": 36867
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "webhook.sactudo.com.br",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+            "content-length": "37278",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,pl;q=0.5",
+            "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryamDL4auMy1pDLiju",
+            "origin": "null",
+            "priority": "u=1, i",
+            "sec-ch-ua": "\"Chromium\";v=\"148\", \"Microsoft Edge\";v=\"148\", \"Not/A)Brand\";v=\"99\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "200.170.78.169",
+            "x-forwarded-host": "webhook.sactudo.com.br",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "f0afdfe2020e",
+            "x-real-ip": "200.170.78.169"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "nome": "Programação Transportador CD1400 (30).xlsx"
+          },
+          "webhookUrl": "https://webhook.sactudo.com.br/webhook/data",
+          "executionMode": "production"
+        },
+        "binary": {
+          "arquivo": {
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "fileExtension": "xlsx",
+            "data": "database",
+            "fileName": "Programação Transportador CD1400 (30).xlsx",
+            "id": "database:48b090ee-cd41-46e9-84eb-c32e89d1255d",
+            "fileSize": "36.9 kB",
+            "bytes": 36867
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Filter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3": {
+      "main": [
+        [
+          {
+            "node": "S3 Download1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter1": {
+      "main": [
+        [
+          {
+            "node": "S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Postgres2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres2": {
+      "main": [
+        []
+      ]
+    },
+    "S3 Download1": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d644af30-d5fe-4979-92a5-5cbdc569249e",
+  "meta": {
+    "instanceId": "e1f2216d7347cf769726185925ae07114c4973b80c7c25593f572a165e156a73"
+  },
+  "id": "WVXoAg4DmVCr0iQi",
+  "tags": []
+}
