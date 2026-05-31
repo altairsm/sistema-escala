@@ -14,7 +14,7 @@ import PDFDocument from 'pdfkit';
 import multer from 'multer';
 import { sendMail, templateAcesso, templateRecuperacao, clearSmtpCache } from './config/email.js';
 import { processarXml, extrairDadosXml } from './services/xmlProcessor.js';
-import { iniciarImapService, checkAllMailboxes } from './services/imapService.js';
+import { iniciarImapService, checkAllMailboxes, testarConexao } from './services/imapService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1394,6 +1394,56 @@ app.post('/api/imap/check', authMiddleware, async (req, res) => {
     res.json({ message: 'Verificação IMAP iniciada em background' });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao iniciar verificação IMAP', details: err.message });
+  }
+});
+
+// ==================== IMAP LOGS (diagnóstico) ====================
+app.get('/api/imap/logs', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+    const tid = req.user.transportadora_id;
+
+    const { rows: logs } = await query(`
+      SELECT id, email_from, email_subject, email_date, attachments_count,
+             xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status,
+             to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+      FROM imap_log
+      WHERE transportadora_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2`, [tid, limit]);
+
+    const { rows: stats } = await query(`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as emails_hoje,
+        COALESCE(SUM(xmls_extracted) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours'), 0) as xmls_hoje,
+        COALESCE(SUM(nfs_inseridas) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours'), 0) as inseridas_hoje,
+        COALESCE(SUM(nfs_atualizadas) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours'), 0) as atualizadas_hoje,
+        COUNT(*) FILTER (WHERE status = 'error' AND created_at > NOW() - INTERVAL '24 hours') as erros_hoje
+      FROM imap_log
+      WHERE transportadora_id = $1`, [tid]);
+
+    res.json({ logs, stats: stats[0] || {} });
+  } catch (err) {
+    console.error('[IMAP] Erro ao buscar logs:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar logs' });
+  }
+});
+
+// ==================== TESTAR CONEXÃO IMAP (sem processar) ====================
+app.post('/api/imap/test', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const tid = req.user.transportadora_id;
+    const { rows } = await query(
+      'SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_password FROM imap_config WHERE transportadora_id = $1',
+      [tid]
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'IMAP não configurado' });
+
+    const config = rows[0];
+    const result = await testarConexao(config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao testar conexão', details: err.message });
   }
 });
 

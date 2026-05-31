@@ -1560,9 +1560,14 @@ function renderAdminTransportadora() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">📬 Configuração IMAP (Email XML NF-e)</div>
-        <button class="btn btn-sm btn-warning" onclick="showImapConfig()">⚙️ Configurar</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-primary" onclick="forcarVerificacaoImap()">🔄 Forçar verificação</button>
+          <button class="btn btn-sm btn-primary" onclick="testarConexaoImap()">🔌 Testar Conexão</button>
+          <button class="btn btn-sm btn-warning" onclick="showImapConfig()">⚙️ Configurar</button>
+        </div>
       </div>
       <div id="imap-status-card" style="font-size:0.85em;color:var(--gray)">Carregando...</div>
+      <div id="imap-diagnostics" style="display:none;margin-top:12px"></div>
     </div>
   `;
 }
@@ -1571,13 +1576,21 @@ async function carregarImapStatus() {
   const el = document.getElementById('imap-status-card');
   if (!el) return;
   try {
-    const cfg = await apiGet('/me/imap-config');
+    const [cfg, logsData] = await Promise.all([
+      apiGet('/me/imap-config'),
+      apiGet('/imap/logs?limit=20'),
+    ]);
+
     if (!cfg) {
       el.innerHTML = '<div class="empty-state" style="padding:12px">⚠️ IMAP não configurado</div>';
       return;
     }
+
+    const stats = logsData?.stats || {};
+    const logs = logsData?.logs || [];
+
     el.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:12px">
         <div style="background:var(--gray-light);padding:8px;border-radius:6px">
           <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Servidor</div>
           <div>${cfg.imap_host}:${cfg.imap_port}</div>
@@ -1599,6 +1612,57 @@ async function carregarImapStatus() {
           <div>${cfg.last_check_at || '—'}</div>
         </div>
       </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px">
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px;text-align:center">
+          <div style="font-size:1.1rem;font-weight:700;color:var(--primary)">${stats.emails_hoje || 0}</div>
+          <div style="font-size:0.65rem;color:var(--gray)">Emails hoje</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px;text-align:center">
+          <div style="font-size:1.1rem;font-weight:700;color:var(--primary)">${stats.xmls_hoje || 0}</div>
+          <div style="font-size:0.65rem;color:var(--gray)">XMLs extraídos</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px;text-align:center">
+          <div style="font-size:1.1rem;font-weight:700;color:green">${stats.inseridas_hoje || 0}</div>
+          <div style="font-size:0.65rem;color:var(--gray)">NFs inseridas</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px;text-align:center">
+          <div style="font-size:1.1rem;font-weight:700;color:var(--orange)">${stats.atualizadas_hoje || 0}</div>
+          <div style="font-size:0.65rem;color:var(--gray)">NFs atualizadas</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px;text-align:center">
+          <div style="font-size:1.1rem;font-weight:700;color:${(stats.erros_hoje || 0) > 0 ? 'var(--red)' : 'green'}">${stats.erros_hoje || 0}</div>
+          <div style="font-size:0.65rem;color:var(--gray)">Erros hoje</div>
+        </div>
+      </div>
+
+      ${logs.length > 0 ? `
+      <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase;margin-bottom:6px">Últimos processamentos</div>
+      <div class="table-container" style="max-height:300px;overflow-y:auto">
+      <table style="font-size:0.8rem">
+        <thead><tr>
+          <th>Data</th>
+          <th>Remetente</th>
+          <th>Anexos</th>
+          <th>XMLs</th>
+          <th>NFs</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody>${logs.map(l => `
+          <tr>
+            <td>${l.created_at}</td>
+            <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.email_subject || ''}">${l.email_from || '?'}</td>
+            <td>${l.attachments_count}</td>
+            <td>${l.xmls_extracted}</td>
+            <td>
+              ${l.nfs_inseridas > 0 ? `<span style="color:green">+${l.nfs_inseridas}</span>` : ''}
+              ${l.nfs_atualizadas > 0 ? `<span style="color:var(--orange)">~${l.nfs_atualizadas}</span>` : ''}
+              ${l.nfs_inseridas === 0 && l.nfs_atualizadas === 0 ? '—' : ''}
+            </td>
+            <td>${l.status === 'ok' ? '✅' : l.status === 'ignored' ? '⏭️' : '❌'}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table></div>` : '<div style="text-align:center;padding:12px;color:var(--gray)">Nenhum processamento registrado ainda</div>'}
     `;
   } catch {
     if (el) el.innerHTML = '<span style="color:var(--red)">Erro ao carregar</span>';
@@ -1676,13 +1740,37 @@ window.salvarImapConfig = async function() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (res.ok) {
+  if (res && res.message) {
     closeModal();
     carregarImapStatus();
   } else {
-    const err = await res.json();
-    alert(err.error || 'Erro ao salvar');
+    alert((res && res.error) || 'Erro ao salvar');
   }
+};
+
+window.forcarVerificacaoImap = async function() {
+  const btn = document.querySelector('button[onclick="forcarVerificacaoImap()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
+  const res = await apiPost('/imap/check');
+  if (res && res.message) {
+    alert('✅ ' + res.message);
+  } else {
+    alert((res && res.error) || 'Erro ao forçar verificação');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Forçar verificação'; }
+  carregarImapStatus();
+};
+
+window.testarConexaoImap = async function() {
+  const btn = document.querySelector('button[onclick="testarConexaoImap()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Testando...'; }
+  const res = await apiPost('/imap/test');
+  if (res && res.success !== false) {
+    alert(`✅ Conexão bem-sucedida!\nTotal de mensagens na INBOX: ${res.messageCount}\nNão lidas: ${res.unseenCount}`);
+  } else {
+    alert('❌ Erro na conexão: ' + (res && res.error || 'Falha desconhecida'));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔌 Testar Conexão'; }
 };
 
 window.abrirGestao = async function(tipo) {

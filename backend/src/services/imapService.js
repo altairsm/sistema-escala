@@ -132,32 +132,41 @@ async function checkMailbox(config) {
                 bodyProcessed = true;
 
                 const rawEmail = Buffer.concat(chunks);
+                let emailFrom = null;
+                let emailSubject = null;
+                let emailDate = null;
+                let attachmentsCount = 0;
+                let xmlsExtracted = 0;
+                let nfsInseridas = 0;
+                let nfsAtualizadas = 0;
+                const erros = [];
+                let logStatus = 'ok';
+                let skipped = false;
 
                 try {
                   const parsed = await simpleParser(rawEmail);
+                  emailFrom = parsed.from?.value?.[0]?.address || null;
+                  emailSubject = parsed.subject || null;
+                  emailDate = parsed.date || null;
 
                   if (remetente_email) {
-                    const fromAddr = parsed.from?.value?.[0]?.address;
+                    const fromAddr = emailFrom;
                     if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
                       console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
-                      processed++;
-                      msgResolve();
+                      skipped = true;
+                      logStatus = 'ignored';
                       return;
                     }
                     if (!fromAddr) {
                       console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
-                      processed++;
-                      msgResolve();
+                      skipped = true;
+                      logStatus = 'ignored';
                       return;
                     }
                   }
 
                   const attachments = parsed.attachments || [];
-                  if (attachments.length === 0) {
-                    console.log(`[IMAP] Nenhum attachment no email de ${parsed.from?.value?.[0]?.address || '?'}`);
-                  } else {
-                    console.log(`[IMAP] ${attachments.length} attachment(s) encontrados no email de ${parsed.from?.value?.[0]?.address || '?'}`);
-                  }
+                  attachmentsCount = attachments.length;
 
                   for (const attachment of attachments) {
                     console.log(`[IMAP] Processando attachment: ${attachment.filename || 'sem nome'} (${(attachment.content?.length || 0)} bytes)`);
@@ -168,20 +177,44 @@ async function checkMailbox(config) {
                       transportadora_id
                     );
 
+                    xmlsExtracted += xmlContents.length;
                     console.log(`[IMAP] ${xmlContents.length} XML(s) extraídos do attachment`);
 
                     for (const xmlContent of xmlContents) {
                       const result = await processarXml(xmlContent, transportadora_id);
                       if (result.error) {
+                        erros.push(`NF ${result.chaveNf || '?'}: ${result.error}`);
                         console.error(`[IMAP] Erro NF ${result.chaveNf || '?'}: ${result.error}`);
+                      } else if (result.inserted) {
+                        nfsInseridas++;
+                        console.log(`[IMAP] NF ${result.chaveNf} inserida (transp #${transportadora_id})`);
                       } else {
-                        console.log(`[IMAP] NF ${result.chaveNf} ${result.inserted ? 'inserida' : 'atualizada'} (transp #${transportadora_id})`);
+                        nfsAtualizadas++;
+                        console.log(`[IMAP] NF ${result.chaveNf} atualizada (transp #${transportadora_id})`);
                       }
                     }
                   }
                 } catch (err) {
+                  erros.push(err.message);
+                  logStatus = 'error';
                   console.error(`[IMAP] Erro ao processar email (${imap_username}):`, err.message);
                 }
+
+                if (!skipped) {
+                  try {
+                    await query(`INSERT INTO imap_log
+                      (transportadora_id, imap_config_id, email_from, email_subject, email_date,
+                       attachments_count, xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status)
+                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [
+                      transportadora_id, id, emailFrom, emailSubject, emailDate,
+                      attachmentsCount, xmlsExtracted, nfsInseridas, nfsAtualizadas,
+                      erros.length > 0 ? erros : null, logStatus,
+                    ]);
+                  } catch (logErr) {
+                    console.error(`[IMAP] Erro ao salvar log no banco:`, logErr.message);
+                  }
+                }
+
                 processed++;
                 msgResolve();
               });
@@ -211,6 +244,65 @@ async function checkMailbox(config) {
 
     imap.once('close', () => {
       query(`UPDATE imap_config SET last_check_at = NOW() WHERE id = $1`, [id]).catch(() => {});
+      query(`SELECT cleanup_imap_logs()`).catch(() => {});
+    });
+
+    imap.connect();
+  });
+}
+
+export async function cleanupOldLogs() {
+  try {
+    await query(`SELECT cleanup_imap_logs()`);
+  } catch {
+    // função pode não existir se migration não rodou
+  }
+}
+
+export async function testarConexao(config) {
+  const { imap_host, imap_port, imap_ssl, imap_username, imap_password } = config;
+
+  return new Promise((resolve) => {
+    const imap = new Imap({
+      user: imap_username,
+      password: imap_password,
+      host: imap_host,
+      port: imap_port,
+      tls: imap_ssl,
+      tlsOptions: { rejectUnauthorized: false },
+      connTimeout: 15000,
+    });
+
+    const result = { success: true, messageCount: 0, unseenCount: 0, error: null };
+
+    imap.once('ready', () => {
+      imap.openBox('INBOX', true, (err, box) => {
+        if (err) {
+          result.success = false;
+          result.error = `Erro ao abrir INBOX: ${err.message}`;
+          imap.end();
+          resolve(result);
+          return;
+        }
+        result.messageCount = box.messages.total;
+
+        imap.search(['UNSEEN'], (err, results) => {
+          if (err) {
+            result.success = false;
+            result.error = `Erro na busca UNSEEN: ${err.message}`;
+          } else {
+            result.unseenCount = results ? results.length : 0;
+          }
+          imap.end();
+          resolve(result);
+        });
+      });
+    });
+
+    imap.once('error', (err) => {
+      result.success = false;
+      result.error = `${err.message} (código: ${err.code || 'N/A'})`;
+      resolve(result);
     });
 
     imap.connect();
