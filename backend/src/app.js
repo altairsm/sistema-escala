@@ -1369,28 +1369,49 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
     }
     const codTranspEsperado = transp.cod_transp;
 
+    function normalizeHeader(name) {
+      return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+    }
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(req.file.path);
     const sheet = workbook.worksheets[0];
     if (!sheet) return res.status(400).json({ error: 'Planilha vazia' });
 
-    const headerRow = sheet.getRow(1);
-    const headers = [];
-    headerRow.eachCell({ includeEmpty: false }, (cell) => {
-      headers.push(cell.text?.toString().trim());
-    });
+    // Escaneia linhas 1-5 para encontrar o cabeçalho
+    let headerRowNum = 0;
+    let headers = {};
+    for (let r = 1; r <= Math.min(5, sheet.rowCount); r++) {
+      const row = sheet.getRow(r);
+      const tempHeaders = {};
+      for (let c = 1; c <= 20; c++) {
+        const val = row.getCell(c).text?.toString().trim();
+        if (val) {
+          const norm = normalizeHeader(val);
+          tempHeaders[norm] = c;
+        }
+      }
+      if (tempHeaders['CARGA']) {
+        headerRowNum = r;
+        headers = tempHeaders;
+        console.log(`[XLSX] Cabeçalho encontrado na linha ${r}:`, Object.keys(tempHeaders));
+        break;
+      }
+    }
 
-    const colMap = {};
-    headers.forEach((h, i) => { colMap[h] = i + 1; });
-
-    if (!colMap['CARGA']) {
-      return res.status(400).json({ error: 'Coluna CARGA não encontrada no cabeçalho' });
+    if (!headerRowNum) {
+      return res.status(400).json({
+        error: 'Coluna CARGA não encontrada no cabeçalho. Cabeçalhos lidos: ' +
+          JSON.stringify(Object.keys(headers)) || '(nenhum)'
+      });
     }
 
     function cell(rowNum, headerName) {
-      const col = colMap[headerName];
+      const col = headers[normalizeHeader(headerName)];
       return col ? sheet.getRow(rowNum).getCell(col) : null;
     }
+
+    const dataStartRow = headerRowNum + 1;
 
     function serialToDate(serial) {
       if (!serial || typeof serial !== 'number') return null;
@@ -1402,12 +1423,19 @@ app.post('/api/importar-cargas', authMiddleware, transportadoraFilter, upload.si
     let inseridas = 0, atualizadas = 0, ignoradas = 0;
     const erros = [];
 
-    for (let r = 2; r <= sheet.rowCount; r++) {
+    console.log(`[XLSX] Dados iniciam na linha ${dataStartRow}`);
+    let emptyRows = 0;
+    for (let r = dataStartRow; r <= sheet.rowCount; r++) {
       const carga = cell(r, 'CARGA')?.text?.toString().trim();
-      if (!carga) continue;
+      if (!carga) { emptyRows++; if (emptyRows > 10) break; continue; }
+      emptyRows = 0;
 
-      const codTranspLinha = cell(r, 'CÓD. TRANSP.')?.text?.toString().trim();
-      if (codTranspLinha !== codTranspEsperado) { ignoradas++; continue; }
+      const codTranspLinha = String(cell(r, 'CÓD. TRANSP.')?.value ?? '').trim();
+      if (codTranspLinha !== codTranspEsperado) {
+        ignoradas++;
+        if (ignoradas <= 3) console.log(`[XLSX] Linha ${r}: cod_transp "${codTranspLinha}" !== "${codTranspEsperado}" (ignorada)`);
+        continue;
+      }
 
       const dataSerial = cell(r, 'DATA ENTREGA')?.value;
       let dataEntrega = null;
