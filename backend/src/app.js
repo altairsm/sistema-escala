@@ -1002,7 +1002,20 @@ app.get('/api/indicadores/resumo', authMiddleware, transportadoraFilter, async (
     );
     const reentregasPend = parseInt(reent.rows[0].total);
 
-    res.json({ total, entregues, insucessos, reentregasPend, taxaSucesso: total > 0 ? Math.round(entregues / total * 100) : 0 });
+    const semPlacaRes = await query(
+      `SELECT COUNT(*) as total FROM entregas e
+       JOIN cargas c ON c.carga = e.fc AND c.transportadora_id = e.transportadora_id
+       WHERE e.transportadora_id = $1 AND (c.placa IS NULL OR c.placa = '')`, [tid]
+    );
+    const semPlaca = parseInt(semPlacaRes.rows[0].total);
+
+    const coletasNaoDevRes = await query(
+      `SELECT COUNT(*) as total FROM reversas
+       WHERE transportadora_id = $1 AND confirma_entrega = true AND (status_devolucao IS NULL OR status_devolucao = false)`, [tid]
+    );
+    const coletasNaoDevolvidas = parseInt(coletasNaoDevRes.rows[0].total);
+
+    res.json({ total, entregues, insucessos, reentregasPend, semPlaca, coletasNaoDevolvidas, taxaSucesso: total > 0 ? Math.round(entregues / total * 100) : 0 });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao buscar indicadores' });
   }

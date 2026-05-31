@@ -658,6 +658,24 @@ function renderTabs() {
       ${i === 5 ? `<span class="tab-badge" id="badge-devolucoes">0</span>` : ''}
     </div>
   `).join('');
+  updateBadges();
+}
+
+function updateBadges() {
+  const badgeEq = document.getElementById('badge-equipe');
+  if (badgeEq) badgeEq.textContent = DATA.cargas.filter(c => c.confirma && !c.confirma_equipe).length;
+
+  const badgeEnt = document.getElementById('badge-entregas');
+  if (badgeEnt) badgeEnt.textContent = DATA.entregas.filter(e => e.confirma_entrega === null).length;
+
+  const badgeRev = document.getElementById('badge-reversa');
+  if (badgeRev) badgeRev.textContent = DATA.reversas.filter(e => e.confirma_entrega === null).length;
+
+  const badgeReent = document.getElementById('badge-reentregas');
+  if (badgeReent) badgeReent.textContent = DATA.entregas.filter(e => e.reentrega === true && e.status_reentrega === null).length;
+
+  const badgeDev = document.getElementById('badge-devolucoes');
+  if (badgeDev) badgeDev.textContent = DATA.devolucoes.filter(e => e.status_devolucao === null).length;
 }
 
 window.switchTab = function(i) {
@@ -687,22 +705,7 @@ async function loadTransportadoraData() {
 
   await Promise.all([p1, p2, p3, p4, p5, p6, p7, p8]);
 
-  // Update badges
-  const badgeEq = document.getElementById('badge-equipe');
-  if (badgeEq) badgeEq.textContent = DATA.cargas.filter(c => c.confirma && !c.confirma_equipe).length;
-
-  const badgeEnt = document.getElementById('badge-entregas');
-  if (badgeEnt) badgeEnt.textContent = DATA.entregas.filter(e => e.confirma_entrega === null).length;
-
-  const badgeRev = document.getElementById('badge-reversa');
-  if (badgeRev) badgeRev.textContent = DATA.reversas.filter(e => e.confirma_entrega === null).length;
-
-  const badgeReent = document.getElementById('badge-reentregas');
-  if (badgeReent) badgeReent.textContent = DATA.entregas.filter(e => e.reentrega === true && e.status_reentrega === null).length;
-
-  const badgeDev = document.getElementById('badge-devolucoes');
-  if (badgeDev) badgeDev.textContent = DATA.devolucoes.filter(e => e.status_devolucao === null).length;
-
+  updateBadges();
   renderContent();
 }
 
@@ -732,11 +735,14 @@ function renderProgramacao() {
       <div class="filter-bar">
         <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.cargaInicio}" onchange="filters.cargaInicio=this.value;loadTransportadoraData()"></div>
         <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.cargaFim}" onchange="filters.cargaFim=this.value;loadTransportadoraData()"></div>
-        <div class="filter-group"><label>📊 Status</label><select onchange="filters.cargaStatus=this.value;renderContent()">
-          <option value="">Todos</option>
-          <option value="confirmado" ${filters.cargaStatus === 'confirmado' ? 'selected' : ''}>Confirmado</option>
-          <option value="pendente" ${filters.cargaStatus === 'pendente' ? 'selected' : ''}>Pendente</option>
-        </select></div>
+        <div class="filter-group"><label>📊 Status</label>
+          <input list="carga-status-list" value="${filters.cargaStatus}" onchange="filters.cargaStatus=this.value;renderContent()" placeholder="Todos" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+          <datalist id="carga-status-list">
+            <option value="">Todos</option>
+            <option value="confirmado">Confirmado</option>
+            <option value="pendente">Pendente</option>
+          </datalist>
+        </div>
       </div>
       <div class="stats-grid">
         <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${cargas.length}</div></div>
@@ -812,11 +818,14 @@ function renderEquipe() {
       <div class="filter-bar">
         <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.equipeInicio}" onchange="filters.equipeInicio=this.value;renderContent()"></div>
         <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.equipeFim}" onchange="filters.equipeFim=this.value;renderContent()"></div>
-        <div class="filter-group"><label>📊 Status</label><select onchange="filters.equipeStatus=this.value;renderContent()">
-          <option value="">Todos</option>
-          <option value="confirmado" ${filters.equipeStatus === 'confirmado' ? 'selected' : ''}>Definida</option>
-          <option value="pendente" ${filters.equipeStatus === 'pendente' ? 'selected' : ''}>Pendente</option>
-        </select></div>
+        <div class="filter-group"><label>📊 Status</label>
+          <input list="equipe-status-list" value="${filters.equipeStatus}" onchange="filters.equipeStatus=this.value;renderContent()" placeholder="Todos" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+          <datalist id="equipe-status-list">
+            <option value="">Todos</option>
+            <option value="confirmado">Definida</option>
+            <option value="pendente">Pendente</option>
+          </datalist>
+        </div>
         <div class="filter-group"><label>🚛 Placa</label>
           <input list="eqp-placas" value="${filters.equipePlaca}" onchange="filters.equipePlaca=this.value;renderContent()" placeholder="Filtrar">
           <datalist id="eqp-placas">${placas.map(p => `<option value="${p}">`).join('')}</datalist>
@@ -841,24 +850,18 @@ function renderEquipe() {
           <div class="equipe-grid">
             <div>
               <label style="font-size:11px;color:#64748b">Motorista *</label>
-              <select id="mot-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-                <option value="">Selecione...</option>
-                ${motoristas.map(m => `<option value="${m.nome}" ${c.motorista === m.nome ? 'selected' : ''}>${m.nome}</option>`).join('')}
-              </select>
+              <input list="mot-${c.id}" id="mot-${c.id}" value="${c.motorista || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="mot-${c.id}">${motoristas.map(m => `<option value="${m.nome}">`).join('')}</datalist>
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 1</label>
-              <select id="aj1-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-                <option value="">Selecione...</option>
-                ${ajudantes.map(a => `<option value="${a.nome}" ${c.ajudante_01 === a.nome ? 'selected' : ''}>${a.nome}</option>`).join('')}
-              </select>
+              <input list="aj1-${c.id}" id="aj1-${c.id}" value="${c.ajudante_01 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="aj1-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 2</label>
-              <select id="aj2-${c.id}" ${c.confirma_equipe ? 'disabled' : ''} style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-                <option value="">Selecione...</option>
-                ${ajudantes.map(a => `<option value="${a.nome}" ${c.ajudante_02 === a.nome ? 'selected' : ''}>${a.nome}</option>`).join('')}
-              </select>
+              <input list="aj2-${c.id}" id="aj2-${c.id}" value="${c.ajudante_02 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+              <datalist id="aj2-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
             </div>
           </div>
           ${!c.confirma_equipe
@@ -969,7 +972,8 @@ window.openInsucesso = function(id) {
       <div class="modal-title">⚠️ Insucesso - ${e.nf}</div>
       <div class="modal-row">
         <label>Motivo *</label>
-        <select id="motivo-insucesso">${MOTIVOS.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
+        <input list="motivo-insucesso-list" id="motivo-insucesso" placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        <datalist id="motivo-insucesso-list">${MOTIVOS.map(m => `<option value="${m}">`).join('')}</datalist>
       </div>
       <div class="modal-row">
         <label>Reentrega?</label>
@@ -1076,7 +1080,10 @@ window.openInsucessoColeta = function(id) {
   showModal(`
     <div class="modal">
       <div class="modal-title">⚠️ Insucesso Coleta - ${e?.nf || e?.chave_nf || ''}</div>
-      <div class="modal-row"><label>Motivo *</label><select id="mot-coleta">${MOTIVOS.map(m => `<option value="${m}">${m}</option>`).join('')}</select></div>
+      <div class="modal-row"><label>Motivo *</label>
+        <input list="mot-coleta-list" id="mot-coleta" placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        <datalist id="mot-coleta-list">${MOTIVOS.map(m => `<option value="${m}">`).join('')}</datalist>
+      </div>
       <div class="modal-row"><label>Recoleta?</label><div class="radio-group">
         <label class="radio-opt" id="rc-sim" onclick="selectRadioColeta('sim')"><input type="radio" name="recol" value="true"> Sim</label>
         <label class="radio-opt" id="rc-nao" onclick="selectRadioColeta('nao')"><input type="radio" name="recol" value="false"> Não, dev. CD</label>
@@ -1267,6 +1274,8 @@ async function carregarIndicadores() {
       <div class="stat-item"><div class="stat-label">Taxa Sucesso</div><div class="stat-value success">${resumo.taxaSucesso}%</div></div>
       <div class="stat-item"><div class="stat-label">Insucessos</div><div class="stat-value danger">${resumo.insucessos}</div></div>
       <div class="stat-item"><div class="stat-label">Reentregas Pend.</div><div class="stat-value warning">${resumo.reentregasPend}</div></div>
+      <div class="stat-item"><div class="stat-label">🚛 S/ Placa</div><div class="stat-value warning">${resumo.semPlaca || 0}</div></div>
+      <div class="stat-item"><div class="stat-label">🔄 Não Devolvidas</div><div class="stat-value danger">${resumo.coletasNaoDevolvidas || 0}</div></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -1568,7 +1577,7 @@ window.novoCadastro = function(tipo) {
   } else if (tipo === 'veiculos') {
     html = `<input id="f-placa" placeholder="Placa (ex: ABC-1234)"><input id="f-tipo" placeholder="Tipo (ex: Fiorino)"><input id="f-obs" placeholder="Observação">`;
   } else if (tipo === 'usuarios') {
-    html = `<input id="f-nome" placeholder="Nome"><input id="f-email" type="email" placeholder="Email"><select id="f-funcao"><option value="admin">Admin</option><option value="operador">Operador</option></select>`;
+    html = `<input id="f-nome" placeholder="Nome"><input id="f-email" type="email" placeholder="Email"><input list="f-funcao-list" id="f-funcao" placeholder="Função" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"><datalist id="f-funcao-list"><option value="admin"><option value="operador"></datalist>`;
   }
 
   // Simple in-place form using alert prompt for simplicity
