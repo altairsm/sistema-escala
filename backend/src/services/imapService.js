@@ -101,7 +101,15 @@ async function checkMailbox(config) {
 
         console.log(`[IMAP] INBOX aberta (${imap_username}), ${box.messages.total} mensagens total`);
 
-        imap.search(['UNSEEN'], (err, results) => {
+        const searchCriteria = remetente_email
+          ? ['UNSEEN', ['FROM', remetente_email]]
+          : ['UNSEEN'];
+
+        if (remetente_email) {
+          console.log(`[IMAP] Filtro ativo: buscando apenas emails de "${remetente_email}" (server-side)`);
+        }
+
+        imap.search(searchCriteria, (err, results) => {
           if (err) {
             console.error(`[IMAP] Erro na busca UNSEEN (${imap_username}):`, err.message);
             imap.end();
