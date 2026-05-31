@@ -60,8 +60,22 @@ function extractData(infCpl, natOp) {
 }
 
 export async function processarXml(xmlContent, transportadora_id) {
-  const doc = parser.parse(xmlContent);
-  const nfeProc = doc.nfeProc;
+  let doc;
+  try {
+    doc = parser.parse(xmlContent);
+  } catch (err) {
+    return { inserted: false, error: `Erro ao fazer parse do XML: ${err.message}` };
+  }
+
+  // Tenta encontrar nfeProc em diferentes posições (alguns XMLs podem ter wrapper)
+  let nfeProc = doc.nfeProc;
+  if (!nfeProc) {
+    const rootKeys = Object.keys(doc).filter(k => !k.startsWith('@_') && k !== '?xml');
+    console.log(`[XML] Tags raiz encontradas: ${rootKeys.join(', ')}`);
+    for (const key of rootKeys) {
+      if (doc[key]?.nfeProc) nfeProc = doc[key].nfeProc;
+    }
+  }
   if (!nfeProc) {
     return { inserted: false, error: 'Tag nfeProc não encontrada no XML' };
   }
@@ -89,6 +103,8 @@ export async function processarXml(xmlContent, transportadora_id) {
 
   const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
 
+  console.log(`[XML] NF ${chaveNf} (nf=${nf}, cliente=${cliente?.slice(0, 30)}, carga=${data?.numeroCarga || '?'})`);
+
   try {
     const { rowCount } = await query(`
       UPDATE entregas SET
@@ -113,6 +129,7 @@ export async function processarXml(xmlContent, transportadora_id) {
     ]);
 
     if (rowCount > 0) {
+      console.log(`[XML] NF ${chaveNf} atualizada (${rowCount} linha(s))`);
       return { inserted: false, updated: true, chaveNf, nf, fc: data?.numeroCarga || null };
     }
 
@@ -136,8 +153,10 @@ export async function processarXml(xmlContent, transportadora_id) {
       natOp || null,
     ]);
 
+    console.log(`[XML] NF ${chaveNf} inserida com sucesso`);
     return { inserted: true, updated: false, chaveNf, nf, fc: data?.numeroCarga || null };
   } catch (err) {
+    console.error(`[XML] Erro ao salvar NF ${chaveNf}:`, err.message);
     return { inserted: false, error: err.message };
   }
 }

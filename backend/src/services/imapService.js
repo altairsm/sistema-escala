@@ -85,69 +85,92 @@ async function checkMailbox(config) {
           return;
         }
 
+        console.log(`[IMAP] INBOX aberta (${imap_username}), ${box.messages.total} mensagens total`);
+
         imap.search(['UNSEEN'], (err, results) => {
-          if (err || !results || results.length === 0) {
+          if (err) {
+            console.error(`[IMAP] Erro na busca UNSEEN (${imap_username}):`, err.message);
             imap.end();
             resolve();
             return;
           }
 
+          if (!results || results.length === 0) {
+            console.log(`[IMAP] Nenhum email não lido para ${imap_username}`);
+            imap.end();
+            resolve();
+            return;
+          }
+
+          console.log(`[IMAP] ${results.length} email(s) não lido(s) encontrado(s) para ${imap_username}`);
+
           const fetch = imap.fetch(results, { bodies: '', markSeen: true });
           let processed = 0;
+          let messageCount = results.length;
 
           fetch.on('message', (msg, seqno) => {
-            let buffer = '';
+            const chunks = [];
 
             msg.on('body', (stream, info) => {
-              stream.on('data', (chunk) => { buffer += chunk.toString('utf8'); });
-            });
+              stream.on('data', (chunk) => { chunks.push(chunk); });
 
-            msg.once('attributes', async (attrs) => {
-              const date = attrs.date;
-              try {
-                const parsed = await simpleParser(buffer);
+              stream.once('end', async () => {
+                const rawEmail = Buffer.concat(chunks);
 
-                if (remetente_email) {
-                  const fromAddr = parsed.from?.value?.[0]?.address;
-                  if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
-                    console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
-                    processed++;
-                    return;
-                  }
-                  if (!fromAddr) {
-                    console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
-                    processed++;
-                    return;
-                  }
-                }
+                try {
+                  const parsed = await simpleParser(rawEmail);
 
-                const attachments = parsed.attachments || [];
-
-                for (const attachment of attachments) {
-                  const xmlContents = processSingleAttachment(
-                    attachment.filename,
-                    attachment.content,
-                    transportadora_id
-                  );
-
-                  for (const xmlContent of xmlContents) {
-                    const result = await processarXml(xmlContent, transportadora_id);
-                    if (result.error) {
-                      console.error(`[IMAP] Erro NF ${result.chaveNf || '?'}: ${result.error}`);
-                    } else {
-                      console.log(`[IMAP] NF ${result.chaveNf} ${result.inserted ? 'inserida' : 'atualizada'} (transp #${transportadora_id})`);
+                  if (remetente_email) {
+                    const fromAddr = parsed.from?.value?.[0]?.address;
+                    if (fromAddr && fromAddr.toLowerCase() !== remetente_email.toLowerCase()) {
+                      console.log(`[IMAP] Ignorado email de ${fromAddr} (remetente configurado: ${remetente_email})`);
+                      processed++;
+                      return;
+                    }
+                    if (!fromAddr) {
+                      console.log(`[IMAP] Ignorado email sem remetente (configurado: ${remetente_email})`);
+                      processed++;
+                      return;
                     }
                   }
+
+                  const attachments = parsed.attachments || [];
+                  if (attachments.length === 0) {
+                    console.log(`[IMAP] Nenhum attachment no email de ${parsed.from?.value?.[0]?.address || '?'}`);
+                  } else {
+                    console.log(`[IMAP] ${attachments.length} attachment(s) encontrados no email de ${parsed.from?.value?.[0]?.address || '?'}`);
+                  }
+
+                  for (const attachment of attachments) {
+                    console.log(`[IMAP] Processando attachment: ${attachment.filename || 'sem nome'} (${(attachment.content?.length || 0)} bytes)`);
+
+                    const xmlContents = processSingleAttachment(
+                      attachment.filename,
+                      attachment.content,
+                      transportadora_id
+                    );
+
+                    console.log(`[IMAP] ${xmlContents.length} XML(s) extraídos do attachment`);
+
+                    for (const xmlContent of xmlContents) {
+                      const result = await processarXml(xmlContent, transportadora_id);
+                      if (result.error) {
+                        console.error(`[IMAP] Erro NF ${result.chaveNf || '?'}: ${result.error}`);
+                      } else {
+                        console.log(`[IMAP] NF ${result.chaveNf} ${result.inserted ? 'inserida' : 'atualizada'} (transp #${transportadora_id})`);
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.error(`[IMAP] Erro ao processar email (${imap_username}):`, err.message);
                 }
-              } catch (err) {
-                console.error(`[IMAP] Erro ao processar email (${imap_username}):`, err.message);
-              }
-              processed++;
+                processed++;
+              });
             });
           });
 
           fetch.once('end', () => {
-            console.log(`[IMAP] Processados ${processed} emails para ${imap_username}`);
+            console.log(`[IMAP] Processados ${processed}/${messageCount} emails para ${imap_username}`);
             end();
           });
         });
