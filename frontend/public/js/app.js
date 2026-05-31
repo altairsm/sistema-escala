@@ -757,10 +757,7 @@ function renderProgramacao() {
           <td>${c.qtd_entg || 0}</td>
           <td>${c.box || ''}</td>
           <td>
-            <input list="placa-list-${c.id}" id="placa-${c.id}" value="${c.placa || ''}" ${c.confirma ? 'disabled' : ''}
-              onchange="updatePlaca(${c.id}, this.value)" placeholder="Placa"
-              style="width:130px;padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;color:#1e293b">
-            <datalist id="placa-list-${c.id}">${DATA.veiculos.map(v => `<option value="${v.placa}">`).join('')}</datalist>
+            ${renderSelect(`placa-${c.id}`, DATA.veiculos, { valueField: 'placa', selected: c.placa || '', disabled: c.confirma, placeholder: 'Placa', style: 'width:130px;padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;color:#1e293b', onchange: `updatePlaca(${c.id}, this.value)` })}
           </td>
           <td>${c.confirma ? '<span class="badge badge-success">✅ Confirmado</span>' : '<span class="badge badge-warning">⏳ Pendente</span>'}</td>
           <td>
@@ -850,18 +847,15 @@ function renderEquipe() {
           <div class="equipe-grid">
             <div>
               <label style="font-size:11px;color:#64748b">Motorista *</label>
-              <input list="mot-${c.id}" id="mot-${c.id}" value="${c.motorista || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="mot-${c.id}">${motoristas.map(m => `<option value="${m.nome}">`).join('')}</datalist>
+              ${renderSelect(`mot-${c.id}`, motoristas, { selected: c.motorista || '', disabled: c.confirma_equipe, placeholder: 'Selecione' })}
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 1</label>
-              <input list="aj1-${c.id}" id="aj1-${c.id}" value="${c.ajudante_01 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="aj1-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+              ${renderSelect(`aj1-${c.id}`, ajudantes, { selected: c.ajudante_01 || '', disabled: c.confirma_equipe, placeholder: 'Opcional' })}
             </div>
             <div>
               <label style="font-size:11px;color:#64748b">Ajudante 2</label>
-              <input list="aj2-${c.id}" id="aj2-${c.id}" value="${c.ajudante_02 || ''}" ${c.confirma_equipe ? 'disabled' : ''} placeholder="Opcional" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-              <datalist id="aj2-${c.id}">${ajudantes.map(a => `<option value="${a.nome}">`).join('')}</datalist>
+              ${renderSelect(`aj2-${c.id}`, ajudantes, { selected: c.ajudante_02 || '', disabled: c.confirma_equipe, placeholder: 'Opcional' })}
             </div>
           </div>
           ${!c.confirma_equipe
@@ -1567,41 +1561,85 @@ window.abrirGestao = async function(tipo) {
 };
 
 window.novoCadastro = function(tipo) {
-  let html = '';
   const titulo = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+  let body = '';
 
   if (tipo === 'motoristas') {
-    html = `<input id="f-nome" placeholder="Nome"><input id="f-cpf" placeholder="CPF"><input id="f-cnh" placeholder="CNH"><input id="f-tel" placeholder="Telefone">`;
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>CPF</label><input id="f-cpf" placeholder="000.000.000-00"></div>
+      <div class="modal-row"><label>CNH</label><input id="f-cnh" placeholder="Nº da CNH"></div>
+      <div class="modal-row"><label>Telefone</label><input id="f-tel" placeholder="(11) 99999-9999"></div>`;
   } else if (tipo === 'ajudantes') {
-    html = `<input id="f-nome" placeholder="Nome"><input id="f-cpf" placeholder="CPF"><input id="f-tel" placeholder="Telefone">`;
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>CPF</label><input id="f-cpf" placeholder="000.000.000-00"></div>
+      <div class="modal-row"><label>Telefone</label><input id="f-tel" placeholder="(11) 99999-9999"></div>`;
   } else if (tipo === 'veiculos') {
-    html = `<input id="f-placa" placeholder="Placa (ex: ABC-1234)"><input id="f-tipo" placeholder="Tipo (ex: Fiorino)"><input id="f-obs" placeholder="Observação">`;
+    body = `
+      <div class="modal-row"><label>Placa *</label><input id="f-placa" placeholder="ABC-1234" style="text-transform:uppercase"></div>
+      <div class="modal-row"><label>Tipo</label>${renderSelect('f-tipo', ['Fiorino','Doblo','Sprinter','Vans','Caminhão','Outro'].map(t => ({nome:t})), { placeholder: 'Selecione o tipo' })}</div>
+      <div class="modal-row"><label>Observação</label><input id="f-obs" placeholder="Observações"></div>`;
   } else if (tipo === 'usuarios') {
-    html = `<input id="f-nome" placeholder="Nome"><input id="f-email" type="email" placeholder="Email"><input list="f-funcao-list" id="f-funcao" placeholder="Função" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"><datalist id="f-funcao-list"><option value="admin"><option value="operador"></datalist>`;
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>Email *</label><input id="f-email" type="email" placeholder="email@exemplo.com"></div>
+      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'}], { placeholder: 'Selecione a função' })}</div>`;
   }
 
-  // Simple in-place form using alert prompt for simplicity
-  closeModal();
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">➕ Novo ${titulo}</div>
+      ${body}
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-success" onclick="salvarNovoCadastro('${tipo}')">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
 
-  if (tipo === 'usuarios') {
-    const nome = prompt('Nome:');
-    if (!nome) return;
-    const email = prompt('Email:');
-    if (!email) return;
-    const funcao = prompt('Função (admin/operador):') || 'operador';
-    salvarCadastro(tipo, { nome, email, funcao });
-  } else if (tipo === 'motoristas') {
-    const nome = prompt('Nome:');
-    if (!nome) return;
-    salvarCadastro(tipo, { nome, cpf: prompt('CPF:') || null, cnh: prompt('CNH:') || null, telefone: prompt('Telefone:') || null });
+window.salvarNovoCadastro = async function(tipo) {
+  const getVal = id => document.getElementById(id)?.value?.trim() || null;
+  let data;
+
+  if (tipo === 'motoristas') {
+    const nome = getVal('f-nome');
+    if (!nome) { alert('Nome é obrigatório'); return; }
+    data = { nome, cpf: getVal('f-cpf'), cnh: getVal('f-cnh'), telefone: getVal('f-tel') };
   } else if (tipo === 'ajudantes') {
-    const nome = prompt('Nome:');
-    if (!nome) return;
-    salvarCadastro(tipo, { nome, cpf: prompt('CPF:') || null, telefone: prompt('Telefone:') || null });
+    const nome = getVal('f-nome');
+    if (!nome) { alert('Nome é obrigatório'); return; }
+    data = { nome, cpf: getVal('f-cpf'), telefone: getVal('f-tel') };
   } else if (tipo === 'veiculos') {
-    const placa = prompt('Placa:');
-    if (!placa) return;
-    salvarCadastro(tipo, { placa: placa.toUpperCase(), tipo: prompt('Tipo:') || null, obs: prompt('Obs:') || null });
+    const placa = getVal('f-placa');
+    if (!placa) { alert('Placa é obrigatória'); return; }
+    data = { placa: placa.toUpperCase(), tipo: getVal('f-tipo'), obs: getVal('f-obs') };
+  } else if (tipo === 'usuarios') {
+    const nome = getVal('f-nome');
+    const email = getVal('f-email');
+    if (!nome || !email) { alert('Nome e email são obrigatórios'); return; }
+    data = { nome, email, funcao: getVal('f-funcao') || 'operador' };
+  } else return;
+
+  const result = await apiPost({ motoristas: '/motoristas', ajudantes: '/ajudantes', veiculos: '/veiculos', usuarios: '/usuarios' }[tipo], data);
+  if (result && result.id) {
+    closeModal();
+    if (tipo === 'usuarios' && result.senha_enviada_para) {
+      alert(`Usuário criado! Email enviado para ${result.senha_enviada_para} com os dados de acesso.`);
+    }
+    if (['motoristas', 'ajudantes'].includes(tipo)) {
+      const d = await apiGet(`/${tipo}`);
+      if (d) DATA[tipo] = d;
+      const f = await apiGet('/funcionarios');
+      if (f) DATA.funcionarios = f;
+    } else if (tipo === 'veiculos') {
+      const d = await apiGet('/veiculos');
+      if (d) DATA.veiculos = d;
+    }
+    renderContent();
+  } else {
+    alert((result && result.error) || 'Erro ao salvar');
   }
 };
 
@@ -1647,25 +1685,75 @@ window.excluirCadastro = async function(tipo, id) {
   }
 };
 
-window.editarCadastro = async function(tipo, id) {
+window.editarCadastro = function(tipo, id) {
   const item = DATA[tipo]?.find(x => x.id === id);
   if (!item) return;
 
+  const titulo = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+  let body = '';
+
   if (tipo === 'motoristas') {
-    const nome = prompt('Nome:', item.nome);
-    if (!nome) return;
-    const result = await apiPut(`/motoristas/${id}`, { nome, cpf: prompt('CPF:', item.cpf||'') || null, cnh: prompt('CNH:', item.cnh||'') || null, telefone: prompt('Telefone:', item.telefone||'') || null });
-    if (result) { Object.assign(item, result); const f = await apiGet('/funcionarios'); if (f) DATA.funcionarios = f; renderContent(); }
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" value="${item.nome}" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>CPF</label><input id="f-cpf" value="${item.cpf || ''}" placeholder="000.000.000-00"></div>
+      <div class="modal-row"><label>CNH</label><input id="f-cnh" value="${item.cnh || ''}" placeholder="Nº da CNH"></div>
+      <div class="modal-row"><label>Telefone</label><input id="f-tel" value="${item.telefone || ''}" placeholder="(11) 99999-9999"></div>`;
   } else if (tipo === 'ajudantes') {
-    const nome = prompt('Nome:', item.nome);
-    if (!nome) return;
-    const result = await apiPut(`/ajudantes/${id}`, { nome, cpf: prompt('CPF:', item.cpf||'') || null, telefone: prompt('Telefone:', item.telefone||'') || null });
-    if (result) { Object.assign(item, result); const f = await apiGet('/funcionarios'); if (f) DATA.funcionarios = f; renderContent(); }
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" value="${item.nome}" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>CPF</label><input id="f-cpf" value="${item.cpf || ''}" placeholder="000.000.000-00"></div>
+      <div class="modal-row"><label>Telefone</label><input id="f-tel" value="${item.telefone || ''}" placeholder="(11) 99999-9999"></div>`;
   } else if (tipo === 'veiculos') {
-    const placa = prompt('Placa:', item.placa);
-    if (!placa) return;
-    const result = await apiPut(`/veiculos/${id}`, { placa: placa.toUpperCase(), tipo: prompt('Tipo:', item.tipo||'') || null, obs: prompt('Obs:', item.obs||'') || null });
-    if (result) { Object.assign(item, result); const v = await apiGet('/veiculos'); if (v) DATA.veiculos = v; renderContent(); }
+    body = `
+      <div class="modal-row"><label>Placa *</label><input id="f-placa" value="${item.placa}" style="text-transform:uppercase" placeholder="ABC-1234"></div>
+      <div class="modal-row"><label>Tipo</label>${renderSelect('f-tipo', ['Fiorino','Doblo','Sprinter','Vans','Caminhão','Outro'].map(t => ({nome:t})), { selected: item.tipo || '', placeholder: 'Selecione o tipo' })}</div>
+      <div class="modal-row"><label>Observação</label><input id="f-obs" value="${item.obs || ''}" placeholder="Observações"></div>`;
+  }
+
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">✏️ Editar ${titulo}</div>
+      ${body}
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarEdicaoCadastro('${tipo}', ${id})">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarEdicaoCadastro = async function(tipo, id) {
+  const getVal = id => document.getElementById(id)?.value?.trim() || null;
+  let data;
+
+  if (tipo === 'motoristas') {
+    const nome = getVal('f-nome');
+    if (!nome) { alert('Nome é obrigatório'); return; }
+    data = { nome, cpf: getVal('f-cpf'), cnh: getVal('f-cnh'), telefone: getVal('f-tel') };
+  } else if (tipo === 'ajudantes') {
+    const nome = getVal('f-nome');
+    if (!nome) { alert('Nome é obrigatório'); return; }
+    data = { nome, cpf: getVal('f-cpf'), telefone: getVal('f-tel') };
+  } else if (tipo === 'veiculos') {
+    const placa = getVal('f-placa');
+    if (!placa) { alert('Placa é obrigatória'); return; }
+    data = { placa: placa.toUpperCase(), tipo: getVal('f-tipo'), obs: getVal('f-obs') };
+  } else return;
+
+  const result = await apiPut({ motoristas: `/motoristas/${id}`, ajudantes: `/ajudantes/${id}`, veiculos: `/veiculos/${id}` }[tipo], data);
+  if (result) {
+    closeModal();
+    Object.assign(DATA[tipo].find(x => x.id === id) || {}, result);
+    if (['motoristas', 'ajudantes'].includes(tipo)) {
+      const f = await apiGet('/funcionarios');
+      if (f) DATA.funcionarios = f;
+    } else if (tipo === 'veiculos') {
+      const v = await apiGet('/veiculos');
+      if (v) DATA.veiculos = v;
+    }
+    renderContent();
+  } else {
+    alert((result && result.error) || 'Erro ao salvar');
   }
 };
 
@@ -1828,6 +1916,33 @@ window.handleLogout = function() {
   clearAuth();
   render();
 };
+
+// ==================== SELECT HELPER ====================
+function renderSelect(id, data, opts = {}) {
+  const {
+    labelField = 'nome',
+    valueField,
+    selected = '',
+    disabled = false,
+    placeholder = 'Selecione',
+    style = 'width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b',
+    filterFn,
+    onchange,
+    extraAttrs = '',
+  } = opts;
+  const listId = id.replace(/[^a-zA-Z0-9_-]/g, '') + '-list';
+  const items = Array.isArray(data) ? (filterFn ? data.filter(filterFn) : data) : [];
+  const options = items.map(item => {
+    const v = typeof item === 'object' && item !== null
+      ? (valueField ? item[valueField] : item[labelField])
+      : item;
+    return `<option value="${v ?? ''}">`;
+  }).join('');
+  return `
+    <input list="${listId}" id="${id}" value="${selected}" ${disabled ? 'disabled' : ''} placeholder="${placeholder}" style="${style}" ${onchange ? `onchange="${onchange}"` : ''} ${extraAttrs}>
+    <datalist id="${listId}">${options}</datalist>
+  `;
+}
 
 // ==================== INIT ====================
 render();
