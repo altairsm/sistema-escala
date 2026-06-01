@@ -143,6 +143,11 @@ async function checkMailbox(config) {
             let msgResolve;
             msgPromises.push(new Promise(resolve => { msgResolve = resolve; }));
             let bodyProcessed = false;
+            let imapDate = null;
+
+            msg.on('attributes', attrs => {
+              imapDate = attrs.date || null;
+            });
 
             msg.on('body', (stream, info) => {
               stream.on('data', (chunk) => { chunks.push(chunk); });
@@ -240,9 +245,9 @@ async function checkMailbox(config) {
                   try {
                     await query(`INSERT INTO imap_log
                       (transportadora_id, imap_config_id, email_from, email_subject, email_date,
-                       attachments_count, xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status)
-                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [
-                      transportadora_id, id, emailFrom, emailSubject, emailDate,
+                       imap_date, attachments_count, xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status)
+                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+                      transportadora_id, id, emailFrom, emailSubject, emailDate, imapDate,
                       attachmentsCount, xmlsExtracted, nfsInseridas, nfsAtualizadas,
                       erros.length > 0 ? erros : null, logStatus,
                     ]);

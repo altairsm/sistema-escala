@@ -1509,7 +1509,10 @@ app.get('/api/me/db-credentials', authMiddleware, transportadoraFilter, async (r
 app.get('/api/me/imap-config', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      'SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_check_interval, active, last_check_at, remetente_email FROM imap_config WHERE transportadora_id = $1',
+      `SELECT id, imap_host, imap_port, imap_ssl, imap_username, imap_check_interval, active,
+              to_char(last_check_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as last_check_at,
+              remetente_email
+       FROM imap_config WHERE transportadora_id = $1`,
       [req.user.transportadora_id]
     );
     res.json(rows[0] || null);
@@ -1581,6 +1584,7 @@ app.get('/api/imap/logs', authMiddleware, transportadoraFilter, async (req, res)
     const { rows: logs } = await query(`
       SELECT id, email_from, email_subject,
              to_char(email_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as email_date,
+             to_char(imap_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as imap_date,
              attachments_count, xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status,
              to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as created_at
       FROM imap_log

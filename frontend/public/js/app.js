@@ -1669,7 +1669,7 @@ async function carregarImapStatus() {
         </tr></thead>
         <tbody>${logs.map(l => `
           <tr>
-            <td>${l.email_date || l.created_at}</td>
+            <td>${l.imap_date || l.created_at}</td>
             <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.email_subject || ''}">${l.email_from || '?'}</td>
             <td>${l.attachments_count}</td>
             <td>${l.xmls_extracted}</td>
