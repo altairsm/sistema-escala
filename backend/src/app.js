@@ -1579,9 +1579,10 @@ app.get('/api/imap/logs', authMiddleware, transportadoraFilter, async (req, res)
     const tid = req.user.transportadora_id;
 
     const { rows: logs } = await query(`
-      SELECT id, email_from, email_subject, email_date, attachments_count,
-             xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status,
-             to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+      SELECT id, email_from, email_subject,
+             to_char(email_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as email_date,
+             attachments_count, xmls_extracted, nfs_inseridas, nfs_atualizadas, erros, status,
+             to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as created_at
       FROM imap_log
       WHERE transportadora_id = $1
       ORDER BY created_at DESC
