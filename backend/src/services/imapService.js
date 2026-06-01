@@ -69,7 +69,8 @@ function processSingleAttachment(filename, buffer, transportadora_id) {
   return [];
 }
 
-async function checkMailbox(config) {
+async function checkMailbox(config, options = {}) {
+  const { data, skipDedup = false } = options;
   const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, remetente_email, last_check_at } = config;
 
   console.log(`[IMAP] Verificando email para transportadora #${transportadora_id} (${imap_username})`);
@@ -101,10 +102,12 @@ async function checkMailbox(config) {
 
         console.log(`[IMAP] INBOX aberta (${imap_username}), ${box.messages.total} mensagens total`);
 
-        // Busca desde a última verificação (ou 7 dias atrás na primeira vez)
-        const sinceDate = last_check_at
-          ? new Date(last_check_at)
-          : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        // Busca desde a data informada, última verificação, ou 7 dias atrás
+        const sinceDate = data
+          ? new Date(data + 'T12:00:00Z')
+          : (last_check_at
+            ? new Date(last_check_at)
+            : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
 
         const searchCriteria = remetente_email
           ? [['SINCE', sinceDate], ['FROM', remetente_email]]
@@ -192,8 +195,8 @@ async function checkMailbox(config) {
                     console.log(`[IMAP] Remetente confere: "${fromAddr}" — processando`);
                   }
 
-                  // Evita reprocessar e-mails já importados
-                  if (emailSubject && emailFrom && emailDate) {
+                  // Evita reprocessar e-mails já importados (apenas no automático)
+                  if (!skipDedup && emailSubject && emailFrom && emailDate) {
                     const { rows: dup } = await query(
                       `SELECT id FROM imap_log WHERE transportadora_id = $1 AND email_subject = $2 AND email_from = $3 AND email_date = $4`,
                       [transportadora_id, emailSubject, emailFrom, emailDate]
@@ -350,7 +353,7 @@ export async function testarConexao(config) {
   });
 }
 
-export async function checkAllMailboxes() {
+export async function checkAllMailboxes(options = {}) {
   let configs = [];
   try {
     configs = await getActiveImapConfigs();
@@ -362,11 +365,15 @@ export async function checkAllMailboxes() {
   }
   for (const config of configs) {
     try {
-      await checkMailbox(config);
+      await checkMailbox(config, options);
     } catch (err) {
       console.error(`[IMAP] Erro geral processando config #${config.id}:`, err.message);
     }
   }
+}
+
+export async function checkMailboxManual(config, data) {
+  await checkMailbox(config, { data, skipDedup: true });
 }
 
 export function iniciarImapService() {

@@ -1563,8 +1563,10 @@ app.post('/api/imap/check', authMiddleware, async (req, res) => {
     return res.status(403).json({ error: 'Apenas saas_owner ou master podem forçar verificação IMAP' });
   }
   try {
-    console.log('[IMAP] Verificação forçada via API pelo usuário', req.user.email || req.user.id);
-    checkAllMailboxes().then(() => {
+    const { data } = req.query;
+    const options = data ? { data, skipDedup: true } : {};
+    console.log('[IMAP] Verificação forçada via API pelo usuário', req.user.email || req.user.id, data ? `(data=${data})` : '');
+    checkAllMailboxes(options).then(() => {
       console.log('[IMAP] Verificação forçada concluída');
     }).catch(err => {
       console.error('[IMAP] Erro na verificação forçada:', err.message);

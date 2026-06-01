@@ -1579,7 +1579,8 @@ function renderAdminTransportadora() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">📬 Configuração IMAP (Email XML NF-e)</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <input type="date" id="filtro-imap-data" style="font-size:0.8rem;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
           <button class="btn btn-sm btn-primary" onclick="forcarVerificacaoImap()">🔄 Forçar verificação</button>
           <button class="btn btn-sm btn-primary" onclick="testarConexaoImap()">🔌 Testar Conexão</button>
           <button class="btn btn-sm btn-warning" onclick="showImapConfig()">⚙️ Configurar</button>
@@ -1770,7 +1771,10 @@ window.salvarImapConfig = async function() {
 window.forcarVerificacaoImap = async function() {
   const btn = document.querySelector('button[onclick="forcarVerificacaoImap()"]');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
-  const res = await apiPost('/imap/check');
+  const dataInput = document.getElementById('filtro-imap-data');
+  const data = dataInput ? dataInput.value : '';
+  const query = data ? `?data=${data}` : '';
+  const res = await apiPost('/imap/check' + query);
   if (res && res.message) {
     alert('✅ ' + res.message);
   } else {
