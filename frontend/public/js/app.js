@@ -1080,12 +1080,16 @@ window.editarEquipe = async function(id) {
 
 // ==================== ENTREGAS ====================
 function renderEntregas() {
-  let lista = DATA.entregas.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.confirma_equipe));
+  let lista;
+  if (filters.entSemPlaca) {
+    lista = DATA.entregas.filter(e => !DATA.cargas.find(c => c.carga === e.fc && c.placa));
+  } else {
+    lista = DATA.entregas.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.confirma_equipe));
+  }
   if (filters.entInicio) lista = lista.filter(e => e.data_nf?.slice(0, 10) >= filters.entInicio);
   if (filters.entFim) lista = lista.filter(e => e.data_nf?.slice(0, 10) <= filters.entFim);
   if (filters.entCarga) lista = lista.filter(e => e.fc === filters.entCarga);
   if (filters.entPlaca) lista = lista.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.placa === filters.entPlaca));
-  if (filters.entSemPlaca) lista = lista.filter(e => !DATA.cargas.find(c => c.carga === e.fc && c.placa));
   if (filters.entBuscaNF) lista = lista.filter(e => (e.nf || '').includes(filters.entBuscaNF));
 
   const entregues = lista.filter(e => e.confirma_entrega === true && !e.reentrega).length;
@@ -1913,8 +1917,8 @@ window.abrirGestao = async function(tipo) {
                 ${campos.map(c => `<td>${item[c] || '—'}</td>`).join('')}
                 ${tipo !== 'usuarios' ? `<td>${item.ativo !== false ? '✅' : '❌'}</td>` : ''}
                 <td>
-                  <button class="btn btn-sm btn-warning" onclick="editarCadastro('${tipo}', ${item.id})">✏️</button>
-                  <button class="btn btn-sm btn-danger" onclick="excluirCadastro('${tipo}', ${item.id})">🗑️</button>
+                  <button class="btn btn-warning" onclick="editarCadastro('${tipo}', ${item.id})">✏️ Editar</button>
+                  ${item.funcao === 'master' ? '' : `<button class="btn btn-danger" onclick="excluirCadastro('${tipo}', ${item.id})">🗑️ Excluir</button>`}
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -2036,10 +2040,10 @@ window.salvarCadastro = async function(tipo, data) {
 
 window.excluirCadastro = async function(tipo, id) {
   if (!confirm('Tem certeza?')) return;
-  const apiMap = { motoristas: '/motoristas', ajudantes: '/ajudantes', veiculos: '/veiculos' };
+  const apiMap = { motoristas: '/motoristas', ajudantes: '/ajudantes', veiculos: '/veiculos', usuarios: '/usuarios' };
   const result = await apiDelete(`${apiMap[tipo]}/${id}`);
   if (result && result.message) {
-    DATA[tipo] = DATA[tipo].filter(x => x.id !== id);
+    if (DATA[tipo]) DATA[tipo] = DATA[tipo].filter(x => x.id !== id);
     if (['motoristas', 'ajudantes'].includes(tipo)) {
       const f = await apiGet('/funcionarios');
       if (f) DATA.funcionarios = f;
@@ -2050,8 +2054,14 @@ window.excluirCadastro = async function(tipo, id) {
   }
 };
 
-window.editarCadastro = function(tipo, id) {
-  const item = DATA[tipo]?.find(x => x.id === id);
+window.editarCadastro = async function(tipo, id) {
+  let item;
+  if (tipo === 'usuarios') {
+    const users = await apiGet('/usuarios');
+    item = users?.find(x => x.id === id);
+  } else {
+    item = DATA[tipo]?.find(x => x.id === id);
+  }
   if (!item) return;
 
   const titulo = tipo.charAt(0).toUpperCase() + tipo.slice(1);
@@ -2073,6 +2083,11 @@ window.editarCadastro = function(tipo, id) {
       <div class="modal-row"><label>Placa *</label><input id="f-placa" value="${item.placa}" style="text-transform:uppercase" placeholder="ABC-1234"></div>
       <div class="modal-row"><label>Tipo</label>${renderSelect('f-tipo', ['Fiorino','Doblo','Sprinter','Vans','Caminhão','Outro'].map(t => ({nome:t})), { selected: item.tipo || '', placeholder: 'Selecione o tipo' })}</div>
       <div class="modal-row"><label>Observação</label><input id="f-obs" value="${item.obs || ''}" placeholder="Observações"></div>`;
+  } else if (tipo === 'usuarios') {
+    body = `
+      <div class="modal-row"><label>Nome *</label><input id="f-nome" value="${item.nome}" placeholder="Nome completo"></div>
+      <div class="modal-row"><label>Email</label><input id="f-email" value="${item.email}" placeholder="email@exemplo.com"></div>
+      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'}], { selected: item.funcao, placeholder: 'Selecione a função' })}</div>`;
   }
 
   showModal(`
@@ -2103,12 +2118,18 @@ window.salvarEdicaoCadastro = async function(tipo, id) {
     const placa = getVal('f-placa');
     if (!placa) { alert('Placa é obrigatória'); return; }
     data = { placa: placa.toUpperCase(), tipo: getVal('f-tipo'), obs: getVal('f-obs') };
+  } else if (tipo === 'usuarios') {
+    const nome = getVal('f-nome');
+    const email = getVal('f-email');
+    if (!nome) { alert('Nome é obrigatório'); return; }
+    data = { nome, email, funcao: getVal('f-funcao') };
   } else return;
 
-  const result = await apiPut({ motoristas: `/motoristas/${id}`, ajudantes: `/ajudantes/${id}`, veiculos: `/veiculos/${id}` }[tipo], data);
+  const apiPutMap = { motoristas: `/motoristas/${id}`, ajudantes: `/ajudantes/${id}`, veiculos: `/veiculos/${id}`, usuarios: `/usuarios/${id}` };
+  const result = await apiPut(apiPutMap[tipo], data);
   if (result) {
     closeModal();
-    Object.assign(DATA[tipo].find(x => x.id === id) || {}, result);
+    if (DATA[tipo]) Object.assign(DATA[tipo].find(x => x.id === id) || {}, result);
     if (['motoristas', 'ajudantes'].includes(tipo)) {
       const f = await apiGet('/funcionarios');
       if (f) DATA.funcionarios = f;

@@ -916,6 +916,20 @@ app.put('/api/usuarios/:id', authMiddleware, transportadoraFilter, async (req, r
   } catch (err) { res.status(500).json({ error: 'Erro ao atualizar usuário' }); }
 });
 
+app.delete('/api/usuarios/:id', authMiddleware, transportadoraFilter, async (req, res) => {
+  if (!['master', 'admin'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+  try {
+    const { rows } = await query(
+      'DELETE FROM usuarios WHERE id = $1 AND transportadora_id = $2 RETURNING id',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ message: 'Usuário excluído' });
+  } catch (err) { res.status(500).json({ error: 'Erro ao excluir usuário' }); }
+});
+
 // ==================== ROTAS OPERACIONAIS ====================
 
 app.get('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) => {
