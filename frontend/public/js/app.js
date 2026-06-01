@@ -2306,13 +2306,21 @@ window.verDbCredentials = async function() {
 function renderArquivo() {
   return `
     <div class="card">
+      <div class="card-header"><div class="card-title">🔍 Consultar NF-e por Chave</div></div>
+      <div style="padding:12px">
+        <input type="text" id="nf-chave-input" maxlength="44" placeholder="Digite a chave de acesso de 44 dígitos" style="width:100%;font-family:monospace;font-size:1.1em;padding:8px;border:1px solid var(--border);border-radius:4px;box-sizing:border-box">
+        <button class="btn btn-primary" style="margin-top:8px;font-size:1rem;padding:10px 24px" onclick="consultarNfPorChave()">🔍 Consultar e Importar</button>
+        <div id="nf-chave-status" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <div class="card-header"><div class="card-title">📁 Importar Cargas (XLSX)</div></div>
       <div class="drop-area" onclick="document.getElementById('xlsx-input').click()">
         📂 Clique para selecionar arquivo XLSX de Programação<br><small>Máx 10MB · Formato: Programação Transportador</small>
         <input type="file" id="xlsx-input" style="display:none" accept=".xlsx" onchange="xlsxSelected(this)">
       </div>
       <div id="xlsx-info" style="margin-top:8px;font-size:0.9em;color:#888"></div>
-      <button id="btn-importar-xlsx" class="btn-primary" style="margin-top:12px;display:none" onclick="importarXlsx()">
+      <button id="btn-importar-xlsx" class="btn btn-primary" style="margin-top:12px;display:none;font-size:1rem;padding:10px 24px" onclick="importarXlsx()">
         ⬆️ Importar
       </button>
       <div id="xlsx-status" style="margin-top:12px"></div>
@@ -2324,7 +2332,7 @@ function renderArquivo() {
         <input type="file" id="xml-input" style="display:none" accept=".xml,.zip" onchange="xmlSelected(this)">
       </div>
       <div id="xml-info" style="margin-top:8px;font-size:0.9em;color:#888"></div>
-      <button id="btn-importar-xml" class="btn-primary" style="margin-top:12px;display:none" onclick="importarXml()">
+      <button id="btn-importar-xml" class="btn btn-primary" style="margin-top:12px;display:none;font-size:1rem;padding:10px 24px" onclick="importarXml()">
         ⬆️ Importar XML
       </button>
       <div id="xml-status" style="margin-top:12px"></div>
@@ -2419,6 +2427,36 @@ window.importarXml = async function() {
   document.getElementById('btn-importar-xml').disabled = false;
   input.value = '';
   document.getElementById('xml-info').textContent = '';
+};
+
+window.consultarNfPorChave = async function() {
+  const input = document.getElementById('nf-chave-input');
+  const chave = input ? input.value.replace(/\D/g, '') : '';
+  if (chave.length !== 44) { alert('A chave deve ter exatamente 44 dígitos'); return; }
+  const el = document.getElementById('nf-chave-status');
+  el.innerHTML = '<span class="badge badge-info">⏳ Consultando...</span>';
+  try {
+    const res = await fetch(`${API}/nf/consultar-por-chave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+      body: JSON.stringify({ chave }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      el.innerHTML = `<span class="badge badge-danger">❌ ${data.error || 'Erro na consulta'}</span>`;
+      return;
+    }
+    let html = '<div style="margin-top:8px">';
+    if (data.inserted) {
+      html += `<span class="badge badge-success">✅ NF ${data.chaveNf} inserida</span>`;
+    } else if (data.updated) {
+      html += `<span class="badge badge-info">🔄 NF ${data.chaveNf} atualizada</span>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch {
+    el.innerHTML = '<span class="badge badge-danger">❌ Erro de conexão</span>';
+  }
 };
 
 // ==================== UTILS ====================

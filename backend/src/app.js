@@ -2001,6 +2001,53 @@ app.delete('/api/prestacao-contas/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== CONSULTA NF POR CHAVE (API EXTERNA) ====================
+app.post('/api/nf/consultar-por-chave', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { chave } = req.body;
+    if (!chave || chave.length !== 44) {
+      return res.status(400).json({ error: 'Chave deve ter 44 caracteres' });
+    }
+
+    const response = await fetch('https://consultadanfe.com/api/v1/consulta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: `API externa retornou ${response.status}` });
+    }
+
+    const data = await response.json();
+    if (data.status !== 'ok') {
+      return res.status(502).json({ error: data.mensagem || 'API externa retornou erro' });
+    }
+
+    if (!data.xml_base64) {
+      return res.status(502).json({ error: 'XML não encontrado na resposta da API' });
+    }
+
+    const xmlBuffer = Buffer.from(data.xml_base64, 'base64');
+    const xmlContent = xmlBuffer.toString('utf-8');
+
+    const result = await processarXml(xmlContent, req.user.transportadora_id);
+
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
+      return res.status(504).json({ error: 'Tempo limite excedido ao consultar API externa' });
+    }
+    console.error('Erro ao consultar NF por chave:', err.message);
+    res.status(500).json({ error: 'Erro ao consultar NF' });
+  }
+});
+
 // ==================== STATIC ====================
 app.use(express.static(path.join(__dirname, '../../frontend/public')));
 
