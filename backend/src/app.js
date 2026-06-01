@@ -706,7 +706,7 @@ app.delete('/api/veiculos/:id', authMiddleware, transportadoraFilter, async (req
   } catch (err) { res.status(500).json({ error: 'Erro ao remover veículo' }); }
 });
 
-function parseCSVLine(line) {
+function parseCSVLine(line, delimiter = ',') {
   const result = [];
   let current = '';
   let inQuotes = false;
@@ -714,7 +714,7 @@ function parseCSVLine(line) {
     const char = line[i];
     if (char === '"') {
       inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       result.push(current.trim());
       current = '';
     } else {
@@ -735,14 +735,15 @@ app.post('/api/veiculos/import', authMiddleware, transportadoraFilter, upload.si
     fs.unlink(req.file.path, () => {});
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
-    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const headers = parseCSVLine(lines[0], delim).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
     if (headers.indexOf('placa') === -1) return res.status(400).json({ error: 'Coluna "placa" obrigatória no CSV' });
     const colTipo = headers.indexOf('tipo');
     const colObs = headers.indexOf('obs');
     const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
     for (let i = 1; i < lines.length; i++) {
       result.total++;
-      const values = parseCSVLine(lines[i]);
+      const values = parseCSVLine(lines[i], delim);
       const placa = (values[headers.indexOf('placa')] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (!placa) { result.erros.push({ linha: i + 1, mensagem: 'Placa é obrigatória' }); continue; }
       const tipo = colTipo >= 0 && values[colTipo] ? values[colTipo] : null;
@@ -772,7 +773,8 @@ app.post('/api/motoristas/import', authMiddleware, transportadoraFilter, upload.
     fs.unlink(req.file.path, () => {});
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
-    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const headers = parseCSVLine(lines[0], delim).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
     const colNome = headers.indexOf('nome');
     const colCpf = headers.indexOf('cpf');
     const colCnh = headers.indexOf('cnh');
@@ -781,7 +783,7 @@ app.post('/api/motoristas/import', authMiddleware, transportadoraFilter, upload.
     const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
     for (let i = 1; i < lines.length; i++) {
       result.total++;
-      const values = parseCSVLine(lines[i]);
+      const values = parseCSVLine(lines[i], delim);
       const nome = values[colNome] ? values[colNome].trim() : '';
       if (!nome) { result.erros.push({ linha: i + 1, mensagem: 'Nome é obrigatório' }); continue; }
       const cpf = colCpf >= 0 ? (values[colCpf] ? values[colCpf].replace(/[^\d]/g, '') : null) : null;
@@ -814,7 +816,8 @@ app.post('/api/ajudantes/import', authMiddleware, transportadoraFilter, upload.s
     fs.unlink(req.file.path, () => {});
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return res.status(400).json({ error: 'CSV deve conter cabeçalho e pelo menos 1 registro' });
-    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const headers = parseCSVLine(lines[0], delim).map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
     const colNome = headers.indexOf('nome');
     const colCpf = headers.indexOf('cpf');
     const colTel = headers.indexOf('telefone');
@@ -822,7 +825,7 @@ app.post('/api/ajudantes/import', authMiddleware, transportadoraFilter, upload.s
     const result = { total: 0, criados: 0, atualizados: 0, ignorados: 0, erros: [] };
     for (let i = 1; i < lines.length; i++) {
       result.total++;
-      const values = parseCSVLine(lines[i]);
+      const values = parseCSVLine(lines[i], delim);
       const nome = values[colNome] ? values[colNome].trim() : '';
       if (!nome) { result.erros.push({ linha: i + 1, mensagem: 'Nome é obrigatório' }); continue; }
       const cpf = colCpf >= 0 ? (values[colCpf] ? values[colCpf].replace(/[^\d]/g, '') : null) : null;
