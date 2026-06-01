@@ -1413,22 +1413,29 @@ window.confirmarDevolucao = async function(id) {
 };
 
 // ==================== PRESTAÇÃO DE CONTAS ====================
-async function renderPrestacaoContas() {
-  const [aptas, realizadas] = await Promise.all([
-    apiGet('/prestacao-contas/aptas'),
-    apiGet('/prestacao-contas'),
-  ]);
+function renderPrestacaoContas() {
   const isMaster = getUser().funcao === 'master';
 
-  return `
-    <div class="card">
-      <div class="card-header"><div class="card-title">📋 Prestação de Contas</div></div>
+  Promise.all([
+    apiGet('/prestacao-contas/aptas'),
+    apiGet('/prestacao-contas'),
+  ]).then(([aptas, realizadas]) => {
+    const el = document.getElementById('prestacao-contas-data');
+    if (!el) return;
+    el.innerHTML = `
       <div class="stats-grid" style="margin-bottom:12px">
         <div class="stat-item"><div class="stat-label">Cargas aptas</div><div class="stat-value primary">${(aptas||[]).length}</div></div>
         <div class="stat-item"><div class="stat-label">Prestações realizadas</div><div class="stat-value">${(realizadas||[]).length}</div></div>
       </div>
       ${renderAptas(aptas)}
       ${renderRealizadas(realizadas, isMaster)}
+    `;
+  });
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Prestação de Contas</div></div>
+      <div id="prestacao-contas-data" style="padding:20px;text-align:center;color:var(--gray)">Carregando...</div>
     </div>
   `;
 }
