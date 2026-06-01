@@ -70,7 +70,7 @@ function processSingleAttachment(filename, buffer, transportadora_id) {
 }
 
 async function checkMailbox(config, options = {}) {
-  const { data, skipDedup = false } = options;
+  const { data, skipDedup = true } = options;
   const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, remetente_email, last_check_at } = config;
 
   console.log(`[IMAP] Verificando email para transportadora #${transportadora_id} (${imap_username})`);
