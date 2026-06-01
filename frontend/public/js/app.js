@@ -800,6 +800,7 @@ const TABS = [
   { label: '🔄 Reversa' },
   { label: '🔁 Reentregas' },
   { label: '⬅️ Devoluções' },
+  { label: '📋 Prest. Contas' },
   { label: '📊 Indicadores' },
   { label: '⚙️ Admin' },
   { label: '📁 Arquivo' }
@@ -902,10 +903,11 @@ function renderContent() {
   const renderers = [
     renderProgramacao, renderEquipe, renderEntregas,
     renderReversa, renderReentregas, renderDevolucoes,
+    renderPrestacaoContas,
     renderIndicadores, renderAdminTransportadora, renderArquivo
   ];
   el.innerHTML = renderers[activeTab]();
-  if (activeTab === 7) setTimeout(carregarImapStatus, 50);
+  if (activeTab === 8) setTimeout(carregarImapStatus, 50);
 }
 
 // ==================== PROGRAMAÇÃO ====================
@@ -1407,6 +1409,132 @@ window.confirmarDevolucao = async function(id) {
     const e = DATA.devolucoes.find(x => x.id === id);
     if (e) e.status_devolucao = true;
     renderContent(); renderTabs();
+  }
+};
+
+// ==================== PRESTAÇÃO DE CONTAS ====================
+async function renderPrestacaoContas() {
+  const [aptas, realizadas] = await Promise.all([
+    apiGet('/prestacao-contas/aptas'),
+    apiGet('/prestacao-contas'),
+  ]);
+  const isMaster = getUser().funcao === 'master';
+
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Prestação de Contas</div></div>
+      <div class="stats-grid" style="margin-bottom:12px">
+        <div class="stat-item"><div class="stat-label">Cargas aptas</div><div class="stat-value primary">${(aptas||[]).length}</div></div>
+        <div class="stat-item"><div class="stat-label">Prestações realizadas</div><div class="stat-value">${(realizadas||[]).length}</div></div>
+      </div>
+      ${renderAptas(aptas)}
+      ${renderRealizadas(realizadas, isMaster)}
+    </div>
+  `;
+}
+
+function renderAptas(aptas) {
+  if (!aptas || aptas.length === 0) return '<div class="empty-state">Nenhuma carga apta no momento</div>';
+  return `
+    <div style="font-size:0.9rem;font-weight:600;margin:12px 0 6px">🚚 Cargas aptas para prestação</div>
+    <div class="table-container"><table>
+      <thead><tr><th>Carga</th><th>Placa</th><th>Data</th><th>Entregas</th><th>Ação</th></tr></thead>
+      <tbody>${aptas.map(c => `
+        <tr>
+          <td><span class="badge badge-info">${c.carga}</span></td>
+          <td>${c.placa || '—'}</td>
+          <td>${c.data_entrega ? c.data_entrega.slice(0,10) : '—'}</td>
+          <td>${c.entregas_finalizadas}/${c.total_entregas}</td>
+          <td><button class="btn btn-sm btn-primary" onclick="confirmarPrestacao(${c.id},'${c.carga}')">✅ Prestar Contas</button></td>
+        </tr>
+      `).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+function renderRealizadas(realizadas, isMaster) {
+  if (!realizadas || realizadas.length === 0) return '';
+  const user = getUser();
+  return `
+    <div style="font-size:0.9rem;font-weight:600;margin:12px 0 6px">✅ Prestações realizadas</div>
+    <div class="table-container"><table>
+      <thead><tr><th>Carga</th><th>Placa</th><th>Data Prestação</th><th>Confirmado por</th>${isMaster ? '<th>Ações</th>' : ''}</tr></thead>
+      <tbody>${realizadas.map(p => `
+        <tr>
+          <td><span class="badge badge-info">${p.carga}</span></td>
+          <td>${p.placa || '—'}</td>
+          <td>${p.data_prestacao ? p.data_prestacao.slice(0,10) : '—'}</td>
+          <td>${p.confirmado_por_nome || user.nome || '—'}</td>
+          ${isMaster ? `
+          <td>
+            <button class="btn btn-sm btn-warning" onclick="editarPrestacao(${p.id},'${p.data_prestacao}')">✏️</button>
+            <button class="btn btn-sm btn-danger" onclick="excluirPrestacao(${p.id},'${p.carga}')">🗑️</button>
+          </td>` : ''}
+        </tr>
+      `).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+window.confirmarPrestacao = async function(cargaId, cargaNome) {
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">✅ Prestar Contas — Carga ${cargaNome}</div>
+      <div class="modal-row"><label>Data da prestação *</label><input type="date" id="f-prestacao-data"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarPrestacao(${cargaId})">💾 Confirmar</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('f-prestacao-data').value = today();
+};
+
+window.salvarPrestacao = async function(cargaId) {
+  const data = document.getElementById('f-prestacao-data').value;
+  if (!data) { alert('Selecione a data da prestação'); return; }
+  const res = await apiPost('/prestacao-contas', { carga_id: cargaId, data_prestacao: data });
+  if (res && res.id) {
+    closeModal();
+    renderContent(); renderTabs();
+  } else {
+    alert((res && res.error) || 'Erro ao salvar');
+  }
+};
+
+window.editarPrestacao = async function(id, dataAtual) {
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">✏️ Editar Prestação de Contas</div>
+      <div class="modal-row"><label>Nova data</label><input type="date" id="f-prestacao-data"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarEdicaoPrestacao(${id})">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('f-prestacao-data').value = dataAtual;
+};
+
+window.salvarEdicaoPrestacao = async function(id) {
+  const data = document.getElementById('f-prestacao-data').value;
+  if (!data) { alert('Selecione a data'); return; }
+  const res = await apiPut(`/prestacao-contas/${id}`, { data_prestacao: data });
+  if (res && res.id) {
+    closeModal();
+    renderContent(); renderTabs();
+  } else {
+    alert((res && res.error) || 'Erro ao atualizar');
+  }
+};
+
+window.excluirPrestacao = async function(id, cargaNome) {
+  if (!confirm(`🗑️ Desfazer prestação de contas da carga ${cargaNome}?`)) return;
+  const res = await apiDelete(`/prestacao-contas/${id}`);
+  if (res && res.message) {
+    renderContent(); renderTabs();
+  } else {
+    alert((res && res.error) || 'Erro ao excluir');
   }
 };
 

@@ -1892,6 +1892,115 @@ app.get('/api/data', authMiddleware, transportadoraFilter, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Erro' }); }
 });
 
+// ==================== PRESTAÇÃO DE CONTAS ====================
+app.get('/api/prestacao-contas/aptas', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT c.id, c.carga, c.placa, c.data_entrega,
+        COUNT(e.id)::int as total_entregas,
+        COUNT(*) FILTER (WHERE e.confirma_entrega IS NOT NULL OR e.devolucao = true)::int as entregas_finalizadas
+      FROM cargas c
+      JOIN entregas e ON e.fc = c.carga
+      WHERE c.transportadora_id = $1
+      AND c.id NOT IN (SELECT carga_id FROM prestacao_contas)
+      GROUP BY c.id, c.carga, c.placa, c.data_entrega
+      HAVING COUNT(e.id) > 0
+      AND COUNT(*) FILTER (
+        WHERE e.confirma_entrega IS NULL AND (e.devolucao IS NULL OR e.devolucao = false)
+      ) = 0
+      ORDER BY c.data_entrega DESC NULLS LAST, c.carga
+    `, [req.user.transportadora_id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar cargas aptas:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar cargas aptas' });
+  }
+});
+
+app.get('/api/prestacao-contas', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT pc.*, c.carga, c.placa, u.nome as confirmado_por_nome
+      FROM prestacao_contas pc
+      JOIN cargas c ON c.id = pc.carga_id
+      LEFT JOIN usuarios u ON u.id = pc.confirmado_por
+      WHERE pc.transportadora_id = $1
+      ORDER BY pc.created_at DESC
+    `, [req.user.transportadora_id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar prestações:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar prestações' });
+  }
+});
+
+app.post('/api/prestacao-contas', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { carga_id, data_prestacao } = req.body;
+    if (!carga_id || !data_prestacao) {
+      return res.status(400).json({ error: 'carga_id e data_prestacao são obrigatórios' });
+    }
+    const tid = req.user.transportadora_id;
+
+    const { rows: carga } = await query('SELECT id, carga FROM cargas WHERE id = $1 AND transportadora_id = $2', [carga_id, tid]);
+    if (carga.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+
+    const { rows: existente } = await query('SELECT id FROM prestacao_contas WHERE carga_id = $1', [carga_id]);
+    if (existente.length > 0) return res.status(400).json({ error: 'Carga já possui prestação de contas' });
+
+    const { rows: pendentes } = await query(`
+      SELECT COUNT(*)::int as total FROM entregas
+      WHERE fc = $1 AND transportadora_id = $2
+      AND confirma_entrega IS NULL AND (devolucao IS NULL OR devolucao = false)
+    `, [carga[0].carga, tid]);
+    if (pendentes[0].total > 0) {
+      return res.status(400).json({ error: `Ainda existem ${pendentes[0].total} entrega(s) pendente(s)` });
+    }
+
+    const { rows: result } = await query(
+      `INSERT INTO prestacao_contas (carga_id, transportadora_id, data_prestacao, confirmado_por)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [carga_id, tid, data_prestacao, req.user.id || null]
+    );
+    res.json(result[0]);
+  } catch (err) {
+    console.error('Erro ao criar prestação:', err.message);
+    res.status(500).json({ error: 'Erro ao criar prestação de contas' });
+  }
+});
+
+app.put('/api/prestacao-contas/:id', authMiddleware, async (req, res) => {
+  if (req.user.funcao !== 'master') return res.status(403).json({ error: 'Apenas master pode alterar' });
+  try {
+    const { data_prestacao } = req.body;
+    if (!data_prestacao) return res.status(400).json({ error: 'data_prestacao é obrigatório' });
+    const { rows } = await query(
+      `UPDATE prestacao_contas SET data_prestacao = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [data_prestacao, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Prestação não encontrada' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar prestação:', err.message);
+    res.status(500).json({ error: 'Erro ao atualizar prestação de contas' });
+  }
+});
+
+app.delete('/api/prestacao-contas/:id', authMiddleware, async (req, res) => {
+  if (req.user.funcao !== 'master') return res.status(403).json({ error: 'Apenas master pode excluir' });
+  try {
+    const { rows } = await query(
+      'DELETE FROM prestacao_contas WHERE id = $1 RETURNING id',
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Prestação não encontrada' });
+    res.json({ message: 'Prestação de contas excluída' });
+  } catch (err) {
+    console.error('Erro ao excluir prestação:', err.message);
+    res.status(500).json({ error: 'Erro ao excluir prestação de contas' });
+  }
+});
+
 // ==================== STATIC ====================
 app.use(express.static(path.join(__dirname, '../../frontend/public')));
 
