@@ -1099,7 +1099,9 @@ function renderEntregas() {
         <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.entInicio}" onchange="filters.entInicio=this.value;loadTransportadoraData()"></div>
         <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.entFim}" onchange="filters.entFim=this.value;loadTransportadoraData()"></div>
         <div class="filter-group"><label>🚚 Sem Placa</label><input type="checkbox" ${filters.entSemPlaca ? 'checked' : ''} onchange="filters.entSemPlaca=this.checked;renderContent()" style="transform:scale(1.2);margin-top:8px"></div>
-        <div class="filter-group"><label>🔍 NF</label><input type="text" placeholder="Buscar NF..." value="${filters.entBuscaNF}" oninput="filters.entBuscaNF=this.value;renderContent()" style="width:120px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div class="filter-group"><label>🔍 NF</label><input type="text" placeholder="Buscar NF..." value="${filters.entBuscaNF}" onchange="filters.entBuscaNF=this.value;renderContent()" style="width:120px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div class="filter-group"><label>📦 Carga</label><input type="text" placeholder="Carga..." value="${filters.entCarga}" onchange="filters.entCarga=this.value;renderContent()" style="width:100px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div class="filter-group"><label>🚛 Placa</label><input list="ent-placa-list" placeholder="Placa..." value="${filters.entPlaca}" onchange="filters.entPlaca=this.value;renderContent()" style="width:120px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"><datalist id="ent-placa-list">${[...new Set(DATA.cargas.filter(c=>c.placa).map(c=>c.placa))].map(p => `<option value="${p}">`).join('')}</datalist></div>
       </div>
       <div class="stats-grid">
         <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>

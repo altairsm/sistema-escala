@@ -70,7 +70,7 @@ function processSingleAttachment(filename, buffer, transportadora_id) {
 }
 
 async function checkMailbox(config) {
-  const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, remetente_email } = config;
+  const { id, transportadora_id, imap_host, imap_port, imap_ssl, imap_username, imap_password, imap_check_interval, remetente_email, last_check_at } = config;
 
   console.log(`[IMAP] Verificando email para transportadora #${transportadora_id} (${imap_username})`);
 
@@ -101,30 +101,37 @@ async function checkMailbox(config) {
 
         console.log(`[IMAP] INBOX aberta (${imap_username}), ${box.messages.total} mensagens total`);
 
+        // Busca desde a última verificação (ou 7 dias atrás na primeira vez)
+        const sinceDate = last_check_at
+          ? new Date(last_check_at)
+          : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
         const searchCriteria = remetente_email
-          ? ['UNSEEN', ['FROM', remetente_email]]
-          : ['UNSEEN'];
+          ? [['SINCE', sinceDate], ['FROM', remetente_email]]
+          : [['SINCE', sinceDate]];
 
         if (remetente_email) {
-          console.log(`[IMAP] Filtro ativo: buscando apenas emails de "${remetente_email}" (server-side)`);
+          console.log(`[IMAP] Buscando emails de "${remetente_email}" desde ${sinceDate.toISOString().slice(0,10)}`);
+        } else {
+          console.log(`[IMAP] Buscando emails desde ${sinceDate.toISOString().slice(0,10)}`);
         }
 
         imap.search(searchCriteria, (err, results) => {
           if (err) {
-            console.error(`[IMAP] Erro na busca UNSEEN (${imap_username}):`, err.message);
+            console.error(`[IMAP] Erro na busca SINCE (${imap_username}):`, err.message);
             imap.end();
             resolve();
             return;
           }
 
           if (!results || results.length === 0) {
-            console.log(`[IMAP] Nenhum email não lido para ${imap_username}`);
+            console.log(`[IMAP] Nenhum email encontrado desde ${sinceDate.toISOString().slice(0,10)} para ${imap_username}`);
             imap.end();
             resolve();
             return;
           }
 
-          console.log(`[IMAP] ${results.length} email(s) não lido(s) encontrado(s) para ${imap_username}`);
+          console.log(`[IMAP] ${results.length} email(s) encontrado(s) desde ${sinceDate.toISOString().slice(0,10)} para ${imap_username}`);
 
           const fetch = imap.fetch(results, { bodies: '', markSeen: true });
           let processed = 0;
@@ -178,6 +185,20 @@ async function checkMailbox(config) {
                       return;
                     }
                     console.log(`[IMAP] Remetente confere: "${fromAddr}" — processando`);
+                  }
+
+                  // Evita reprocessar e-mails já importados
+                  if (emailSubject && emailFrom && emailDate) {
+                    const { rows: dup } = await query(
+                      `SELECT id FROM imap_log WHERE transportadora_id = $1 AND email_subject = $2 AND email_from = $3 AND email_date = $4`,
+                      [transportadora_id, emailSubject, emailFrom, emailDate]
+                    );
+                    if (dup.length > 0) {
+                      console.log(`[IMAP] Email já processado anteriormente, ignorando: "${emailSubject}"`);
+                      skipped = true;
+                      logStatus = 'ignored';
+                      return;
+                    }
                   }
 
                   const attachments = parsed.attachments || [];
