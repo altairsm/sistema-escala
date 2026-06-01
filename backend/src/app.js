@@ -1243,7 +1243,7 @@ app.get('/api/indicadores/resumo', authMiddleware, transportadoraFilter, async (
 
     const coletasNaoDevRes = await query(
       `SELECT COUNT(*) as total FROM entregas
-       WHERE transportadora_id = $1 AND remessa IS NOT NULL AND remessa != 'VENDA' AND confirma_entrega = true AND (status_devolucao IS NULL OR status_devolucao = false)`, [tid]
+       WHERE transportadora_id = $1 AND remessa IS NOT NULL AND remessa != 'VENDA' AND confirma_entrega = true AND (status_reentrega IS NULL OR status_reentrega = false)`, [tid]
     );
     const coletasNaoDevolvidas = parseInt(coletasNaoDevRes.rows[0].total);
 

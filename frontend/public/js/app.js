@@ -39,7 +39,7 @@ const DEFAULT_DAYS = 3;
 let filters = {
   cargaStatus: '', cargaInicio: daysAgo(DEFAULT_DAYS), cargaFim: today(),
   equipeInicio: daysAgo(DEFAULT_DAYS), equipeFim: today(), equipeStatus: '', equipePlaca: '',
-  entInicio: daysAgo(DEFAULT_DAYS), entFim: today(), entCarga: '', entPlaca: '',
+  entInicio: daysAgo(DEFAULT_DAYS), entFim: today(), entCarga: '', entPlaca: '', entSemPlaca: false, entBuscaNF: '',
   revInicio: daysAgo(DEFAULT_DAYS), revFim: today(),
   devInicio: daysAgo(DEFAULT_DAYS), devFim: today()
 };
@@ -1085,6 +1085,8 @@ function renderEntregas() {
   if (filters.entFim) lista = lista.filter(e => e.data_nf?.slice(0, 10) <= filters.entFim);
   if (filters.entCarga) lista = lista.filter(e => e.fc === filters.entCarga);
   if (filters.entPlaca) lista = lista.filter(e => DATA.cargas.find(c => c.carga === e.fc && c.placa === filters.entPlaca));
+  if (filters.entSemPlaca) lista = lista.filter(e => !DATA.cargas.find(c => c.carga === e.fc && c.placa));
+  if (filters.entBuscaNF) lista = lista.filter(e => (e.nf || '').includes(filters.entBuscaNF));
 
   const entregues = lista.filter(e => e.confirma_entrega === true && !e.reentrega).length;
   const insucessos = lista.filter(e => e.confirma_entrega === false && !e.reentrega).length;
@@ -1096,6 +1098,8 @@ function renderEntregas() {
       <div class="filter-bar">
         <div class="filter-group"><label>📅 Início</label><input type="date" value="${filters.entInicio}" onchange="filters.entInicio=this.value;loadTransportadoraData()"></div>
         <div class="filter-group"><label>📅 Fim</label><input type="date" value="${filters.entFim}" onchange="filters.entFim=this.value;loadTransportadoraData()"></div>
+        <div class="filter-group"><label>🚚 Sem Placa</label><input type="checkbox" ${filters.entSemPlaca ? 'checked' : ''} onchange="filters.entSemPlaca=this.checked;renderContent()" style="transform:scale(1.2);margin-top:8px"></div>
+        <div class="filter-group"><label>🔍 NF</label><input type="text" placeholder="Buscar NF..." value="${filters.entBuscaNF}" oninput="filters.entBuscaNF=this.value;renderContent()" style="width:120px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       </div>
       <div class="stats-grid">
         <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${lista.length}</div></div>
@@ -1212,8 +1216,8 @@ function renderReversa() {
         <div class="stat-item"><div class="stat-label">Aguard. Recoleta</div><div class="stat-value warning">${agRecoleta}</div></div>
         <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value default">${pendentes}</div></div>
       </div>
-      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
-      <tbody>${lista.length === 0 ? '<tr><td colspan="6"><div class="empty-state">📭 Nenhuma coleta</div></td></tr>' : lista.map(e => {
+      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Remessa</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? '<tr><td colspan="7"><div class="empty-state">📭 Nenhuma coleta</div></td></tr>' : lista.map(e => {
         let st = '', ac = '';
         if (e.status_reentrega === true || (e.status_devolucao === true && !e.reentrega)) {
           st = '<span class="badge badge-success">✅ Finalizado</span>';
@@ -1239,7 +1243,7 @@ function renderReversa() {
           ac = `<button class="btn btn-sm btn-success" onclick="confirmarColeta(${e.id}, true)">✅ Coletado</button>
                 <button class="btn btn-sm btn-danger" onclick="openInsucessoColeta(${e.id})">❌ Insucesso</button>`;
         }
-        return `<tr><td>${e.nf || e.chave_nf || '—'}</td><td><span class="badge badge-info">${e.fc || e.carga || '—'}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td>${e.bairro||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
+        return `<tr><td>${e.nf || e.chave_nf || '—'}</td><td><span class="badge badge-info">${e.fc || e.carga || '—'}</span></td><td><span class="badge" style="background:#e2e8f0;color:#475569">${e.remessa || '—'}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td>${e.bairro||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
       }).join('')}</tbody></table></div>
     </div>
   `;
