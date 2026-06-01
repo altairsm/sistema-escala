@@ -725,6 +725,8 @@ function parseCSVLine(line) {
   return result;
 }
 
+const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
+
 // --- Import CSV: Veículos ---
 app.post('/api/veiculos/import', authMiddleware, transportadoraFilter, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
@@ -1584,8 +1586,6 @@ app.post('/api/imap/test', authMiddleware, transportadoraFilter, async (req, res
     res.status(500).json({ error: 'Erro ao testar conexão', details: err.message });
   }
 });
-
-const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ==================== TESTAR XML (sem salvar) ====================
 app.post('/api/testar-xml', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
