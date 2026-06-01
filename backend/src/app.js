@@ -1011,7 +1011,7 @@ app.put('/api/cargas/:id/desfazer-equipe', authMiddleware, transportadoraFilter,
 // --- Entregas ---
 app.get('/api/entregas', authMiddleware, transportadoraFilter, async (req, res) => {
   const { dataInicio, dataFim, carga, placa } = req.query;
-  let sql = 'SELECT e.* FROM entregas e WHERE e.transportadora_id = $1';
+  let sql = `SELECT e.* FROM entregas e WHERE e.transportadora_id = $1 AND (e.remessa = 'VENDA' OR e.remessa IS NULL)`;
   const params = [req.user.transportadora_id];
   let idx = 2;
   if (dataInicio) { sql += ` AND e.data_nf >= $${idx}`; params.push(dataInicio); idx++; }
@@ -1089,12 +1089,12 @@ app.put('/api/entregas/:id/reentrega', authMiddleware, transportadoraFilter, asy
 // --- Reversas ---
 app.get('/api/reversas', authMiddleware, transportadoraFilter, async (req, res) => {
   const { dataInicio, dataFim } = req.query;
-  let sql = 'SELECT * FROM reversas WHERE transportadora_id = $1';
+  let sql = `SELECT e.* FROM entregas e WHERE e.transportadora_id = $1 AND e.remessa IS NOT NULL AND e.remessa != 'VENDA'`;
   const params = [req.user.transportadora_id];
   let idx = 2;
-  if (dataInicio) { sql += ` AND data_nf >= $${idx}`; params.push(dataInicio); idx++; }
-  if (dataFim) { sql += ` AND data_nf <= $${idx}`; params.push(dataFim); idx++; }
-  sql += ' ORDER BY data_nf DESC';
+  if (dataInicio) { sql += ` AND e.data_nf >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND e.data_nf <= $${idx}`; params.push(dataFim); idx++; }
+  sql += ' ORDER BY e.data_nf DESC';
   try {
     const { rows } = await query(sql, params);
     res.json(rows);
@@ -1105,11 +1105,20 @@ app.put('/api/reversas/:id/confirmar', authMiddleware, transportadoraFilter, asy
   const { status } = req.body;
   try {
     const { rows } = await query(
-      `UPDATE reversas SET confirma_entrega = $1, updated_at = NOW()
+      `UPDATE entregas SET confirma_entrega = $1, updated_at = NOW()
        WHERE id = $2 AND transportadora_id = $3 RETURNING *`,
       [status, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    // Se coleta confirmada como sucesso, insere em em_devolucao
+    if (status) {
+      const e = rows[0];
+      await query(
+        `INSERT INTO em_devolucao (transportadora_id, fc, nf, cliente, bairro, motivo_insucesso)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [req.user.transportadora_id, e.fc || e.carga, e.nf, e.cliente, e.bairro, 'Coleta confirmada']
+      );
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Erro ao confirmar coleta' }); }
 });
@@ -1118,12 +1127,21 @@ app.post('/api/reversas/:id/insucesso', authMiddleware, transportadoraFilter, as
   const { motivo, reentrega, devolucao } = req.body;
   try {
     const { rows } = await query(
-      `UPDATE reversas SET confirma_entrega = false, motivo_insucesso = $1,
+      `UPDATE entregas SET confirma_entrega = false, motivo_insucesso = $1,
        reentrega = $2, devolucao = $3, updated_at = NOW()
        WHERE id = $4 AND transportadora_id = $5 RETURNING *`,
       [motivo, reentrega, devolucao, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
+    // Se devolucao for true, insere em em_devolucao
+    if (devolucao) {
+      const e = rows[0];
+      await query(
+        `INSERT INTO em_devolucao (transportadora_id, fc, nf, cliente, bairro, motivo_insucesso)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [req.user.transportadora_id, e.fc || e.carga, e.nf, e.cliente, e.bairro, motivo]
+      );
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Erro ao registrar insucesso' }); }
 });
@@ -1131,7 +1149,7 @@ app.post('/api/reversas/:id/insucesso', authMiddleware, transportadoraFilter, as
 app.put('/api/reversas/:id/reabrir', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      `UPDATE reversas SET confirma_entrega = null, motivo_insucesso = null,
+      `UPDATE entregas SET confirma_entrega = null, motivo_insucesso = null,
        reentrega = null, devolucao = null, status_reentrega = null, status_devolucao = null, updated_at = NOW()
        WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
       [req.params.id, req.user.transportadora_id]
@@ -1145,7 +1163,7 @@ app.put('/api/reversas/:id/recoleta', authMiddleware, transportadoraFilter, asyn
   const { status } = req.body;
   try {
     const { rows } = await query(
-      `UPDATE reversas SET status_devolucao = $1, updated_at = NOW()
+      `UPDATE entregas SET status_devolucao = $1, updated_at = NOW()
        WHERE id = $2 AND transportadora_id = $3 RETURNING *`,
       [status, req.params.id, req.user.transportadora_id]
     );
@@ -1157,7 +1175,7 @@ app.put('/api/reversas/:id/recoleta', authMiddleware, transportadoraFilter, asyn
 app.put('/api/reversas/:id/devolucao-cd', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      `UPDATE reversas SET status_reentrega = true, updated_at = NOW()
+      `UPDATE entregas SET status_reentrega = true, updated_at = NOW()
        WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
       [req.params.id, req.user.transportadora_id]
     );
@@ -1198,34 +1216,34 @@ app.get('/api/indicadores/resumo', authMiddleware, transportadoraFilter, async (
   const { dataInicio, dataFim } = req.query;
   try {
     const tid = req.user.transportadora_id;
-    const result = await query('SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1', [tid]);
+    const result = await query(`SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND (remessa = 'VENDA' OR remessa IS NULL)`, [tid]);
     const total = parseInt(result.rows[0].total);
 
     const ok = await query(
-      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = true AND (reentrega IS NULL OR reentrega = false)`, [tid]
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = true AND (reentrega IS NULL OR reentrega = false) AND (remessa = 'VENDA' OR remessa IS NULL)`, [tid]
     );
     const entregues = parseInt(ok.rows[0].total);
 
     const ins = await query(
-      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = false AND (reentrega IS NULL OR reentrega = false)`, [tid]
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND confirma_entrega = false AND (reentrega IS NULL OR reentrega = false) AND (remessa = 'VENDA' OR remessa IS NULL)`, [tid]
     );
     const insucessos = parseInt(ins.rows[0].total);
 
     const reent = await query(
-      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND reentrega = true AND status_reentrega IS NULL`, [tid]
+      `SELECT COUNT(*) as total FROM entregas WHERE transportadora_id = $1 AND reentrega = true AND status_reentrega IS NULL AND (remessa = 'VENDA' OR remessa IS NULL)`, [tid]
     );
     const reentregasPend = parseInt(reent.rows[0].total);
 
     const semPlacaRes = await query(
       `SELECT COUNT(*) as total FROM entregas e
        JOIN cargas c ON c.carga = e.fc AND c.transportadora_id = e.transportadora_id
-       WHERE e.transportadora_id = $1 AND (c.placa IS NULL OR c.placa = '')`, [tid]
+       WHERE e.transportadora_id = $1 AND (c.placa IS NULL OR c.placa = '') AND (e.remessa = 'VENDA' OR e.remessa IS NULL)`, [tid]
     );
     const semPlaca = parseInt(semPlacaRes.rows[0].total);
 
     const coletasNaoDevRes = await query(
-      `SELECT COUNT(*) as total FROM reversas
-       WHERE transportadora_id = $1 AND confirma_entrega = true AND (status_devolucao IS NULL OR status_devolucao = false)`, [tid]
+      `SELECT COUNT(*) as total FROM entregas
+       WHERE transportadora_id = $1 AND remessa IS NOT NULL AND remessa != 'VENDA' AND confirma_entrega = true AND (status_devolucao IS NULL OR status_devolucao = false)`, [tid]
     );
     const coletasNaoDevolvidas = parseInt(coletasNaoDevRes.rows[0].total);
 
@@ -1243,7 +1261,7 @@ app.get('/api/indicadores/tendencia', authMiddleware, transportadoraFilter, asyn
               SUM(CASE WHEN confirma_entrega = true THEN 1 ELSE 0 END) as entregues,
               SUM(CASE WHEN confirma_entrega = false THEN 1 ELSE 0 END) as insucessos
        FROM entregas
-       WHERE transportadora_id = $1 AND data_nf BETWEEN $2 AND $3
+       WHERE transportadora_id = $1 AND data_nf BETWEEN $2 AND $3 AND (remessa = 'VENDA' OR remessa IS NULL)
        GROUP BY data_nf ORDER BY data_nf`,
       [req.user.transportadora_id, dataInicio || '2020-01-01', dataFim || '2099-12-31']
     );
@@ -1373,7 +1391,7 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
                            WHEN e.confirma_entrega = false THEN 'Insucesso'
                            ELSE 'Pendente' END as status,
                       e.motivo_insucesso
-               FROM entregas e WHERE e.transportadora_id = $1`;
+               FROM entregas e WHERE e.transportadora_id = $1 AND (e.remessa = 'VENDA' OR e.remessa IS NULL)`;
         if (dataInicio) sql += ` AND e.data_nf >= '${dataInicio}'`;
         if (dataFim) sql += ` AND e.data_nf <= '${dataFim}'`;
         sql += ' ORDER BY e.data_nf DESC';
@@ -1382,7 +1400,7 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
         sql = `SELECT e.nf, e.fc as carga, e.cliente, e.bairro, e.data_nf,
                       e.motivo_insucesso,
                       CASE WHEN e.reentrega = true THEN 'Sim' ELSE 'Não' END as reentrega
-               FROM entregas e WHERE e.transportadora_id = $1 AND e.confirma_entrega = false`;
+               FROM entregas e WHERE e.transportadora_id = $1 AND e.confirma_entrega = false AND (e.remessa = 'VENDA' OR e.remessa IS NULL)`;
         if (dataInicio) sql += ` AND e.data_nf >= '${dataInicio}'`;
         if (dataFim) sql += ` AND e.data_nf <= '${dataFim}'`;
         sql += ' ORDER BY e.data_nf DESC';
@@ -1400,7 +1418,7 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
                       CASE WHEN e.status_reentrega = true THEN 'Entregue'
                            WHEN e.status_reentrega = false THEN 'Devolvido'
                            ELSE 'Aguardando' END as status
-               FROM entregas e WHERE e.transportadora_id = $1 AND e.reentrega = true
+               FROM entregas e WHERE e.transportadora_id = $1 AND e.reentrega = true AND (e.remessa = 'VENDA' OR e.remessa IS NULL)
                ORDER BY e.data_nf DESC`;
         break;
       case 'devolucoes':
