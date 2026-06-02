@@ -1051,6 +1051,23 @@ app.put('/api/entregas/:id/confirmar', authMiddleware, transportadoraFilter, asy
   } catch (err) { res.status(500).json({ error: 'Erro ao confirmar entrega' }); }
 });
 
+app.put('/api/entregas/confirmar-por-carga', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { carga } = req.body;
+  if (!carga) return res.status(400).json({ error: 'Carga é obrigatória' });
+  try {
+    const { rowCount } = await query(`
+      UPDATE entregas SET confirma_entrega = true, updated_at = NOW()
+      WHERE fc = $1 AND transportadora_id = $2
+        AND confirma_entrega IS NULL
+        AND (devolucao IS NULL OR devolucao = false)
+    `, [carga, req.user.transportadora_id]);
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error('Erro ao confirmar entregas por carga:', err.message);
+    res.status(500).json({ error: 'Erro ao confirmar entregas' });
+  }
+});
+
 app.post('/api/entregas/:id/insucesso', authMiddleware, transportadoraFilter, async (req, res) => {
   const { motivo, reentrega, devolucao } = req.body;
   try {

@@ -1115,6 +1115,13 @@ function renderEntregas() {
         <div class="stat-item"><div class="stat-label">Insucesso</div><div class="stat-value danger">${insucessos}</div></div>
         <div class="stat-item"><div class="stat-label">Pendentes</div><div class="stat-value warning">${pendentes}</div></div>
       </div>
+      ${filters.entCarga && pendentes > 0 ? `
+        <div style="padding:0 0 12px 0;text-align:center">
+          <button class="btn btn-success" onclick="confirmarTodasEntregas()" style="font-size:1rem;padding:10px 24px">
+            ✅ Marcar todas como entregues (${pendentes} pendentes)
+          </button>
+        </div>
+      ` : ''}
       <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
       <tbody>${lista.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma entrega</div></td></tr>` : lista.map(e => `
         <tr>
@@ -1155,17 +1162,46 @@ window.reabrirEntrega = async function(id) {
   } else alert('Erro');
 };
 
+window.confirmarTodasEntregas = async function() {
+  if (!filters.entCarga) return;
+  if (!confirm(`Marcar todas as entregas pendentes da carga ${filters.entCarga} como entregues?`)) return;
+  const result = await apiPut('/entregas/confirmar-por-carga', { carga: filters.entCarga });
+  if (result) {
+    DATA.entregas.forEach(e => {
+      if (e.fc === filters.entCarga && e.confirma_entrega === null && !e.devolucao) {
+        e.confirma_entrega = true;
+      }
+    });
+    renderContent(); renderTabs();
+  } else alert('Erro ao confirmar entregas');
+};
+
+const MOTIVOS_INSUCESSO = [
+  { motivo: 'ENDEREÇO ERRADO', codigo: '9' },
+  { motivo: 'NÃO LOCALIZADO NO ENDEREÇO', codigo: '9' },
+  { motivo: 'RUA INTRANSITÁVEL', codigo: '10' },
+  { motivo: 'AUSENTE', codigo: '11' },
+  { motivo: 'CLIENTE DESCONHECIDO NO ENDEREÇO', codigo: '12' },
+  { motivo: 'HORÁRIO', codigo: '13' },
+  { motivo: 'COMPRA CANCELADA', codigo: '16' },
+  { motivo: 'AVARIADO', codigo: '20' },
+  { motivo: 'TROCA CANCELADA', codigo: '37' },
+  { motivo: 'DEVIDO PROBLEMA COM A ENTREGA', codigo: '39' },
+  { motivo: 'PRODUTO MONTADO', codigo: '39' },
+  { motivo: 'DEVIDO PROBLEMA COM A COLETA', codigo: '40' },
+  { motivo: 'AGENDADO', codigo: '52' },
+];
+
 window.openInsucesso = function(id) {
   const e = DATA.entregas.find(x => x.id === id);
   if (!e) return;
-  const MOTIVOS = ['Cliente ausente','Endereço não encontrado','Recusou recebimento','Produto com avaria','Divergência no pedido','Acesso impedido','CEP incorreto','Reagendamento a pedido','Veículo sem acesso','Outros'];
   showModal(`
     <div class="modal">
       <div class="modal-title">⚠️ Insucesso - ${e.nf}</div>
       <div class="modal-row">
         <label>Motivo *</label>
         <input list="motivo-insucesso-list" id="motivo-insucesso" placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-        <datalist id="motivo-insucesso-list">${MOTIVOS.map(m => `<option value="${m}">`).join('')}</datalist>
+        <datalist id="motivo-insucesso-list">${MOTIVOS_INSUCESSO.map(m => `<option value="${m.motivo} (${m.codigo})">`).join('')}</datalist>
       </div>
       <div class="modal-row">
         <label>Reentrega?</label>
@@ -1268,13 +1304,12 @@ window.confirmarColeta = async function(id, status) {
 
 window.openInsucessoColeta = function(id) {
   const e = DATA.reversas.find(x => x.id === id);
-  const MOTIVOS = ['Cliente ausente','Endereço não encontrado','Recusou troca','Produto com avaria','Divergência no pedido','Acesso impedido','Outros'];
   showModal(`
     <div class="modal">
       <div class="modal-title">⚠️ Insucesso Coleta - ${e?.nf || e?.chave_nf || ''}</div>
       <div class="modal-row"><label>Motivo *</label>
         <input list="mot-coleta-list" id="mot-coleta" placeholder="Selecione" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
-        <datalist id="mot-coleta-list">${MOTIVOS.map(m => `<option value="${m}">`).join('')}</datalist>
+        <datalist id="mot-coleta-list">${MOTIVOS_INSUCESSO.map(m => `<option value="${m.motivo} (${m.codigo})">`).join('')}</datalist>
       </div>
       <div class="modal-row"><label>Recoleta?</label><div class="radio-group">
         <label class="radio-opt" id="rc-sim" onclick="selectRadioColeta('sim')"><input type="radio" name="recol" value="true"> Sim</label>
