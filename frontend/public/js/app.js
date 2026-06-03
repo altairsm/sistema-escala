@@ -2451,7 +2451,7 @@ window.enviarCargaParaSSW = async function(carga, placa) {
   if (nfsCount === 0) { alert(`Nenhuma NF com chave encontrada para a carga ${carga}`); return; }
   if (!confirm(`Enviar ${nfsCount} NF(s) da carga ${carga} para o SSW (placa: ${placa})?`)) return;
   const result = await apiPost('/ssw/enviar-carga', { carga, placaColeta: placa });
-  if (!result) return;
+  if (!result) { alert('Erro de comunicação com o servidor'); return; }
   let html = `<div class="modal" style="width:600px">
     <div class="modal-title">🔌 Resultado do Envio SSW</div>
     <div style="margin-bottom:12px">
@@ -2464,8 +2464,11 @@ window.enviarCargaParaSSW = async function(carga, placa) {
     <div style="max-height:300px;overflow-y:auto;font-size:0.8rem">`;
   (result.resultados || []).forEach(r => {
     const icone = r.sucesso ? '✅' : '❌';
-    html += `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${icone} ${r.notaFiscal || ''} - ${r.mensagem || ''} ${r.protocolo ? `(protocolo: ${r.protocolo})` : ''}</div>`;
+    html += `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${icone} ${r.notaFiscal || ''} - ${(r.mensagem || '').slice(0, 300)} ${r.protocolo ? `(protocolo: ${r.protocolo})` : ''}</div>`;
   });
+  if (result.error) {
+    html += `<div style="padding:8px;margin-top:8px;background:#fef2f2;border-radius:8px;color:#dc2626">❌ ${result.error}</div>`;
+  }
   html += `</div>
     <div class="modal-footer"><button class="btn" onclick="closeModal()">Fechar</button></div>
   </div>`;

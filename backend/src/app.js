@@ -2198,6 +2198,7 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
         username: cfg.username,
         password: cfg.password,
         cnpj_edi: cfg.cnpj_edi,
+        force: true,
       }),
       signal: AbortSignal.timeout(30000),
     });
@@ -2299,7 +2300,16 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
       signal: AbortSignal.timeout(60000),
     });
 
-    const nfResult = await nfResp.json();
+    let nfResult;
+    let rawText;
+    try {
+      nfResult = await nfResp.json();
+    } catch {
+      rawText = await nfResp.text();
+      console.error('Resposta SSW nao-JSON, status:', nfResp.status, 'body:', rawText.slice(0, 500));
+      console.error('Payload enviado:', JSON.stringify(payload).slice(0, 1000));
+      nfResult = [{ sucesso: false, mensagem: `Resposta invalida da SSW (HTTP ${nfResp.status}): ${rawText.slice(0, 200)}` }];
+    }
 
     // 6. Log do envio
     const sucessos = Array.isArray(nfResult) ? nfResult.filter(r => r.sucesso).length : 0;
@@ -2323,7 +2333,12 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
   } catch (err) {
     if (err.name === 'TimeoutError') return res.status(504).json({ error: 'Tempo limite excedido' });
     console.error('Erro ao enviar carga para SSW:', err.message);
-    res.status(500).json({ error: `Erro ao enviar: ${err.message}` });
+    res.json({
+      enviadas: 0,
+      sucessos: 0,
+      falhas: 1,
+      resultados: [{ sucesso: false, mensagem: `Erro: ${err.message}` }],
+    });
   }
 });
 
