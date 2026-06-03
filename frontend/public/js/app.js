@@ -1126,7 +1126,7 @@ function renderEntregas() {
       <tbody>${lista.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma entrega</div></td></tr>` : lista.map(e => `
         <tr>
           <td>${e.nf}</td>
-          <td><span class="badge badge-info">${e.fc}</span></td>
+          <td><span class="badge badge-info">${e.fc}</span>${e.confirma_entrega === null ? ` <button class="btn btn-sm" onclick="openTransferirNF(${e.id}, '${e.fc}')" style="font-size:0.75rem;padding:2px 6px" title="Transferir para outra carga">↔️</button>` : ''}</td>
           <td>${(e.cliente || '—').slice(0, 35)}</td>
           <td>${e.bairro || '—'}</td>
           <td>${e.confirma_entrega === true ? '<span class="badge badge-success">✅ Entregue</span>' :
@@ -1174,6 +1174,74 @@ window.confirmarTodasEntregas = async function() {
     });
     renderContent(); renderTabs();
   } else alert('Erro ao confirmar entregas');
+};
+
+window.openTransferirNF = function(id, cargaAtual) {
+  const cargas = [...new Set(DATA.cargas.map(c => c.carga))].sort();
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">↔️ Transferir NF para outra carga</div>
+      <div class="modal-row">
+        <label>Carga atual</label>
+        <input value="${cargaAtual}" disabled style="width:100%;padding:8px;border-radius:8px;background:#f1f5f9;color:#64748b">
+      </div>
+      <div class="modal-row">
+        <label>Nova carga *</label>
+        <input list="transf-carga-list" id="nova-carga" placeholder="Digite ou selecione..." style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        <datalist id="transf-carga-list">${cargas.map(c => `<option value="${c}">`).join('')}</datalist>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-warning" onclick="salvarTransferirNF(${id})">💾 Transferir</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarTransferirNF = async function(id) {
+  const novaCarga = document.getElementById('nova-carga')?.value.trim();
+  if (!novaCarga) { alert('Informe a nova carga'); return; }
+  const e = DATA.entregas.find(x => x.id === id);
+  const result = await apiPut(`/entregas/${id}/transferir`, { novaCarga, carga_anterior: e?.fc });
+  if (result) {
+    if (e) e.fc = novaCarga;
+    closeModal();
+    renderContent();
+  } else alert('Erro ao transferir NF');
+};
+
+window.openTransferirReversa = function(id, cargaAtual) {
+  const cargas = [...new Set(DATA.cargas.map(c => c.carga))].sort();
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">↔️ Transferir reversa para outra carga</div>
+      <div class="modal-row">
+        <label>Carga atual</label>
+        <input value="${cargaAtual}" disabled style="width:100%;padding:8px;border-radius:8px;background:#f1f5f9;color:#64748b">
+      </div>
+      <div class="modal-row">
+        <label>Nova carga *</label>
+        <input list="transf-rev-list" id="nova-carga-rev" placeholder="Digite ou selecione..." style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        <datalist id="transf-rev-list">${cargas.map(c => `<option value="${c}">`).join('')}</datalist>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-warning" onclick="salvarTransferirReversa(${id})">💾 Transferir</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarTransferirReversa = async function(id) {
+  const novaCarga = document.getElementById('nova-carga-rev')?.value.trim();
+  if (!novaCarga) { alert('Informe a nova carga'); return; }
+  const e = DATA.reversas.find(x => x.id === id);
+  const result = await apiPut(`/reversas/${id}/transferir`, { novaCarga, carga_anterior: e?.fc || e?.carga });
+  if (result) {
+    if (e) e.fc = novaCarga;
+    closeModal();
+    renderContent();
+  } else alert('Erro ao transferir reversa');
 };
 
 const MOTIVOS_INSUCESSO = [
@@ -1287,7 +1355,7 @@ function renderReversa() {
           ac = `<button class="btn btn-sm btn-success" onclick="confirmarColeta(${e.id}, true)">✅ Coletado</button>
                 <button class="btn btn-sm btn-danger" onclick="openInsucessoColeta(${e.id})">❌ Insucesso</button>`;
         }
-        return `<tr><td>${e.nf || e.chave_nf || '—'}</td><td><span class="badge badge-info">${e.fc || e.carga || '—'}</span></td><td><span class="badge" style="background:#e2e8f0;color:#475569">${e.remessa || '—'}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td>${e.bairro||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
+        return `<tr><td>${e.nf || e.chave_nf || '—'}</td><td><span class="badge badge-info">${e.fc || e.carga || '—'}</span>${e.confirma_entrega === null ? ` <button class="btn btn-sm" onclick="openTransferirReversa(${e.id}, '${e.fc || e.carga || ''}')" style="font-size:0.75rem;padding:2px 6px" title="Transferir para outra carga">↔️</button>` : ''}</td><td><span class="badge" style="background:#e2e8f0;color:#475569">${e.remessa || '—'}</span></td><td>${(e.cliente||'—').slice(0,35)}</td><td>${e.bairro||'—'}</td><td>${st}</td><td>${ac}</td></tr>`;
       }).join('')}</tbody></table></div>
     </div>
   `;

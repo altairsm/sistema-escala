@@ -150,7 +150,8 @@ app.post('/api/auth/login', async (req, res) => {
         id: u.id,
         transportadora_id: u.transportadora_id,
         funcao: u.funcao,
-        email: u.email
+        email: u.email,
+        nome: u.nome
       });
 
       return res.json({
@@ -1068,6 +1069,30 @@ app.put('/api/entregas/confirmar-por-carga', authMiddleware, transportadoraFilte
   }
 });
 
+app.put('/api/entregas/:id/transferir', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { novaCarga } = req.body;
+  if (!novaCarga) return res.status(400).json({ error: 'novaCarga é obrigatória' });
+  try {
+    const { rows } = await query(`
+      UPDATE entregas SET fc = $1, updated_at = NOW()
+      WHERE id = $2 AND transportadora_id = $3
+        AND confirma_entrega IS NULL
+        AND (devolucao IS NULL OR devolucao = false)
+      RETURNING *
+    `, [novaCarga, req.params.id, req.user.transportadora_id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada ou já finalizada' });
+    const e = rows[0];
+    await query(`
+      INSERT INTO transferencias_log (transportadora_id, entrega_id, tipo, nf, carga_anterior, carga_nova, usuario_id, usuario_nome)
+      VALUES ($1, $2, 'entrega', $3, $4, $5, $6, $7)
+    `, [req.user.transportadora_id, e.id, e.nf, req.body.carga_anterior || e.fc, novaCarga, req.user.id, req.user.nome || req.user.email || 'Sistema']);
+    res.json(e);
+  } catch (err) {
+    console.error('Erro ao transferir NF:', err.message);
+    res.status(500).json({ error: 'Erro ao transferir NF' });
+  }
+});
+
 app.post('/api/entregas/:id/insucesso', authMiddleware, transportadoraFilter, async (req, res) => {
   const { motivo, reentrega, devolucao } = req.body;
   try {
@@ -1201,6 +1226,29 @@ app.put('/api/reversas/:id/recoleta', authMiddleware, transportadoraFilter, asyn
     if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Erro ao confirmar recoleta' }); }
+});
+
+app.put('/api/reversas/:id/transferir', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { novaCarga } = req.body;
+  if (!novaCarga) return res.status(400).json({ error: 'novaCarga é obrigatória' });
+  try {
+    const { rows } = await query(`
+      UPDATE reversas SET fc = $1, updated_at = NOW()
+      WHERE id = $2 AND transportadora_id = $3
+        AND confirma_entrega IS NULL
+      RETURNING *
+    `, [novaCarga, req.params.id, req.user.transportadora_id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Reversa não encontrada ou já finalizada' });
+    const e = rows[0];
+    await query(`
+      INSERT INTO transferencias_log (transportadora_id, reversa_id, tipo, nf, carga_anterior, carga_nova, usuario_id, usuario_nome)
+      VALUES ($1, $2, 'reversa', $3, $4, $5, $6, $7)
+    `, [req.user.transportadora_id, e.id, e.nf || e.chave_nf, req.body.carga_anterior || e.fc || e.carga, novaCarga, req.user.id, req.user.nome || req.user.email || 'Sistema']);
+    res.json(e);
+  } catch (err) {
+    console.error('Erro ao transferir reversa:', err.message);
+    res.status(500).json({ error: 'Erro ao transferir reversa' });
+  }
 });
 
 app.put('/api/reversas/:id/devolucao-cd', authMiddleware, transportadoraFilter, async (req, res) => {
