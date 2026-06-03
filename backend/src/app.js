@@ -2113,6 +2113,213 @@ app.post('/api/nf/consultar-por-chave', authMiddleware, transportadoraFilter, as
   }
 });
 
+// ==================== SSW (INTEGRAÇÃO NOTFIS) ====================
+app.get('/api/me/ssw-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM ssw_config WHERE transportadora_id = $1', [req.user.transportadora_id]);
+    if (rows.length === 0) return res.json(null);
+    const cfg = rows[0];
+    cfg.password = '********';
+    res.json(cfg);
+  } catch (err) {
+    console.error('Erro ao buscar config SSW:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar config' });
+  }
+});
+
+app.put('/api/me/ssw-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { domain, username, password, cnpj_edi } = req.body;
+  if (!domain || !username || !cnpj_edi) return res.status(400).json({ error: 'domain, username e cnpj_edi são obrigatórios' });
+  const tid = req.user.transportadora_id;
+  try {
+    const { rows: existing } = await query('SELECT id, password FROM ssw_config WHERE transportadora_id = $1', [tid]);
+    const pwd = password && password !== '********' ? password : (existing.length > 0 ? existing[0].password : '');
+    if (!pwd) return res.status(400).json({ error: 'Password é obrigatório na primeira configuração' });
+    if (existing.length > 0) {
+      await query(`
+        UPDATE ssw_config SET domain=$1, username=$2, password=$3, cnpj_edi=$4, updated_at=NOW()
+        WHERE transportadora_id=$5
+      `, [domain, username, pwd, cnpj_edi, tid]);
+    } else {
+      await query(`
+        INSERT INTO ssw_config (transportadora_id, domain, username, password, cnpj_edi)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [tid, domain, username, pwd, cnpj_edi]);
+    }
+    res.json({ message: 'Configuração SSW salva' });
+  } catch (err) {
+    console.error('Erro ao salvar config SSW:', err.message);
+    res.status(500).json({ error: 'Erro ao salvar config' });
+  }
+});
+
+app.post('/api/ssw/testar-token', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM ssw_config WHERE transportadora_id = $1', [req.user.transportadora_id]);
+    if (rows.length === 0) return res.status(400).json({ error: 'SSW não configurado' });
+    const cfg = rows[0];
+    const response = await fetch('https://ssw.inf.br/api/generateToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: cfg.domain,
+        username: cfg.username,
+        password: cfg.password,
+        cnpj_edi: cfg.cnpj_edi,
+        force: true
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    if (err.name === 'TimeoutError') return res.status(504).json({ error: 'Tempo limite excedido' });
+    console.error('Erro ao testar token SSW:', err.message);
+    res.status(500).json({ error: 'Erro ao testar token' });
+  }
+});
+
+app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { carga } = req.body;
+  if (!carga) return res.status(400).json({ error: 'carga é obrigatória' });
+  const tid = req.user.transportadora_id;
+  try {
+    // 1. Buscar config SSW
+    const { rows: configs } = await query('SELECT * FROM ssw_config WHERE transportadora_id = $1', [tid]);
+    if (configs.length === 0) return res.status(400).json({ error: 'SSW não configurado' });
+    const cfg = configs[0];
+
+    // 2. Gerar token
+    const tokenResp = await fetch('https://ssw.inf.br/api/generateToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: cfg.domain,
+        username: cfg.username,
+        password: cfg.password,
+        cnpj_edi: cfg.cnpj_edi,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const tokenData = await tokenResp.json();
+    if (!tokenData.sucess || !tokenData.token) {
+      throw new Error(`Falha ao gerar token SSW: ${tokenData.message || 'erro desconhecido'}`);
+    }
+
+    // 3. Buscar entregas da carga com chave_nf
+    const { rows: entregas } = await query(`
+      SELECT * FROM entregas
+      WHERE fc = $1 AND transportadora_id = $2 AND chave_nf IS NOT NULL AND chave_nf != ''
+    `, [carga, tid]);
+
+    if (entregas.length === 0) {
+      return res.status(400).json({ error: 'Nenhuma NF com chave encontrada para esta carga' });
+    }
+
+    // 4. Agrupar por destinatario (cliente)
+    const grupos = {};
+    for (const e of entregas) {
+      const key = e.cliente || 'SEM_CLIENTE';
+      if (!grupos[key]) {
+        grupos[key] = {
+          cnpj: e.cnpj_cliente || '',
+          nome: e.cliente || '',
+          bairro: e.bairro || '',
+          cidade: e.cidade || '',
+          nfs: [],
+        };
+      }
+      grupos[key].nfs.push({
+        tipoNF: 'NORMAL',
+        condicaoFrete: e.frete_tipo || 'CIF',
+        numero: e.nf || '',
+        serie: '',
+        chaveNFe: e.chave_nf || '',
+        dataEmissao: e.data_nf || '',
+        qtdeVolumes: e.qtd_volumes || 1,
+        valorMercadoria: parseFloat(e.valor_nf || 0),
+        pesoReal: parseFloat(e.peso_real || 0),
+        pedido: e.nf_pv || '',
+      });
+    }
+
+    // Pegar dados do emitente da primeira entrega (todas da mesma carga tem o mesmo emitente)
+    const first = entregas[0];
+    const remetente = {
+      cnpj: first.cnpj_emitente || '',
+      nome: first.nome_emitente || '',
+      endereco: {
+        rua: (first.end_emitente || '').split(',')[0] || '',
+        numero: (first.end_emitente || '').split(',')[1]?.trim().split(' ')[0] || '',
+        bairro: '',
+        cidade: first.cidade_emitente || '',
+        uf: first.uf_emitente || '',
+        cep: 0,
+      },
+    };
+
+    const destinatarios = Object.entries(grupos).map(([key, g]) => ({
+      cnpj: g.cnpj,
+      nome: g.nome,
+      endereco: {
+        rua: '',
+        numero: '',
+        bairro: g.bairro,
+        cidade: g.cidade,
+        uf: '',
+        cep: 0,
+      },
+      nf: g.nfs,
+    }));
+
+    const payload = [{
+      lote: carga,
+      dados: [{
+        cnpj: remetente.cnpj,
+        remetente,
+        destinatario: destinatarios,
+      }],
+    }];
+
+    // 5. Enviar para NotFis API
+    const nfResp = await fetch('https://ssw.inf.br/api/notfis', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${tokenData.token}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    const nfResult = await nfResp.json();
+
+    // 6. Log do envio
+    const sucessos = Array.isArray(nfResult) ? nfResult.filter(r => r.sucesso).length : 0;
+    const falhas = Array.isArray(nfResult) ? nfResult.filter(r => !r.sucesso).length : 0;
+
+    await query(`
+      INSERT INTO ssw_envio_log (transportadora_id, carga, lote, qtd_nfs, status, resultado)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+    `, [
+      tid, carga, carga, entregas.length,
+      falhas === 0 ? 'sucesso' : (sucessos > 0 ? 'parcial' : 'erro'),
+      JSON.stringify(nfResult),
+    ]);
+
+    res.json({
+      enviadas: entregas.length,
+      sucessos,
+      falhas,
+      resultados: Array.isArray(nfResult) ? nfResult : [nfResult],
+    });
+  } catch (err) {
+    if (err.name === 'TimeoutError') return res.status(504).json({ error: 'Tempo limite excedido' });
+    console.error('Erro ao enviar carga para SSW:', err.message);
+    res.status(500).json({ error: `Erro ao enviar: ${err.message}` });
+  }
+});
+
 // ==================== STATIC ====================
 app.use(express.static(path.join(__dirname, '../../frontend/public')));
 

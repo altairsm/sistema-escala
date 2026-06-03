@@ -1,0 +1,12 @@
+-- 015_entregas_ssw_columns.sql
+ALTER TABLE entregas
+  ADD COLUMN IF NOT EXISTS cnpj_cliente     VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS cnpj_emitente    VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS nome_emitente    VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS end_emitente     TEXT,
+  ADD COLUMN IF NOT EXISTS cidade_emitente  VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS uf_emitente      VARCHAR(2),
+  ADD COLUMN IF NOT EXISTS valor_nf         NUMERIC(10,2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS peso_real        NUMERIC(10,3) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS qtd_volumes      INTEGER DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS frete_tipo       VARCHAR(3) DEFAULT 'CIF';

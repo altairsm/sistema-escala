@@ -99,33 +99,58 @@ export async function processarXml(xmlContent, transportadora_id) {
   const bairro = infNFe.dest?.enderDest?.xBairro || '';
   const infCpl = infNFe.infAdic?.infCpl || '';
 
+  // Dados do emitente (remetente)
+  const cnpjEmitente = infNFe.emit?.CNPJ || '';
+  const nomeEmitente = infNFe.emit?.xNome || '';
+  const endEmit = infNFe.emit?.enderEmit || {};
+  const endEmitente = `${endEmit.xLgr || ''}, ${endEmit.nro || ''}${endEmit.xCpl ? ' ' + endEmit.xCpl : ''}`.trim();
+  const cidadeEmitente = endEmit.xMun || '';
+  const ufEmitente = endEmit.UF || '';
+
+  // CNPJ/CPF do destinatario
+  const cnpjCliente = infNFe.dest?.CNPJ || infNFe.dest?.CPF || '';
+
+  // Totais da NF
+  const icmsTot = infNFe.total?.ICMSTot || {};
+  const valorNf = parseFloat(icmsTot.vNF || 0);
+  const serie = String(infNFe.ide?.serie || '');
+
+  // Modalidade do frete: 0=CIF, 1=FOB
+  const freteTipo = infNFe.transp?.modFrete === '1' ? 'FOB' : 'CIF';
+
+  // Volumes
+  const vol = infNFe.transp?.vol;
+  const qtdVolumes = parseInt(vol?.qVol || 0);
+  const pesoReal = parseFloat(vol?.pesoL || 0);
+
   const data = extractData(infCpl, natOp);
 
   const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
 
-  console.log(`[XML] NF ${chaveNf} (nf=${nf}, cliente=${cliente?.slice(0, 30)}, carga=${data?.numeroCarga || '?'})`);
+  console.log(`[XML] NF ${chaveNf} (nf=${nf}, emit=${nomeEmitente?.slice(0, 30)}, cliente=${cliente?.slice(0, 30)}, carga=${data?.numeroCarga || '?'})`);
 
   try {
     const { rowCount } = await query(`
       UPDATE entregas SET
         transportadora_id = $2, nf = $3, data_nf = $4, fc = $5, box = $6,
         nf_pv = $7, filial = $8, cliente = $9, cidade = $10, bairro = $11,
-        micro_zona = $12, remessa = $13, updated_at = NOW()
+        micro_zona = $12, remessa = $13,
+        cnpj_cliente = $14, cnpj_emitente = $15, nome_emitente = $16,
+        end_emitente = $17, cidade_emitente = $18, uf_emitente = $19,
+        valor_nf = $20, peso_real = $21, qtd_volumes = $22, frete_tipo = $23,
+        updated_at = NOW()
       WHERE chave_nf = $1
     `, [
-      chaveNf,
-      transportadora_id,
-      nf,
-      dataNf,
+      chaveNf, transportadora_id, nf, dataNf,
       data?.numeroCarga || null,
       data?.box ? parseInt(data.box, 10) : null,
       data?.numeroPedido || data?.numero || null,
       data?.filialVenda ? parseInt(data.filialVenda, 10) : null,
-      cliente || null,
-      cidade || null,
-      bairro || null,
-      data?.microZona || null,
-      natOp || null,
+      cliente || null, cidade || null, bairro || null,
+      data?.microZona || null, natOp || null,
+      cnpjCliente || null, cnpjEmitente || null, nomeEmitente || null,
+      endEmitente || null, cidadeEmitente || null, ufEmitente || null,
+      valorNf || 0, pesoReal || 0, qtdVolumes || 0, freteTipo,
     ]);
 
     if (rowCount > 0) {
@@ -135,22 +160,22 @@ export async function processarXml(xmlContent, transportadora_id) {
 
     await query(`
       INSERT INTO entregas (chave_nf, transportadora_id, nf, data_nf, fc, box,
-        nf_pv, filial, cliente, cidade, bairro, micro_zona, remessa)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        nf_pv, filial, cliente, cidade, bairro, micro_zona, remessa,
+        cnpj_cliente, cnpj_emitente, nome_emitente, end_emitente,
+        cidade_emitente, uf_emitente, valor_nf, peso_real, qtd_volumes, frete_tipo)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
     `, [
-      chaveNf,
-      transportadora_id,
-      nf,
-      dataNf,
+      chaveNf, transportadora_id, nf, dataNf,
       data?.numeroCarga || null,
       data?.box ? parseInt(data.box, 10) : null,
       data?.numeroPedido || data?.numero || null,
       data?.filialVenda ? parseInt(data.filialVenda, 10) : null,
-      cliente || null,
-      cidade || null,
-      bairro || null,
-      data?.microZona || null,
-      natOp || null,
+      cliente || null, cidade || null, bairro || null,
+      data?.microZona || null, natOp || null,
+      cnpjCliente || null, cnpjEmitente || null, nomeEmitente || null,
+      endEmitente || null, cidadeEmitente || null, ufEmitente || null,
+      valorNf || 0, pesoReal || 0, qtdVolumes || 0, freteTipo,
     ]);
 
     console.log(`[XML] NF ${chaveNf} inserida com sucesso`);
@@ -200,6 +225,21 @@ export function extrairDadosXml(xmlContent) {
   const infCpl = infNFe.infAdic?.infCpl || '';
   const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
 
+  const cnpjEmitente = infNFe.emit?.CNPJ || '';
+  const nomeEmitente = infNFe.emit?.xNome || '';
+  const endEmit = infNFe.emit?.enderEmit || {};
+  const endEmitente = `${endEmit.xLgr || ''}, ${endEmit.nro || ''}${endEmit.xCpl ? ' ' + endEmit.xCpl : ''}`.trim();
+  const cidadeEmitente = endEmit.xMun || '';
+  const ufEmitente = endEmit.UF || '';
+
+  const cnpjCliente = infNFe.dest?.CNPJ || infNFe.dest?.CPF || '';
+  const icmsTot = infNFe.total?.ICMSTot || {};
+  const valorNf = parseFloat(icmsTot.vNF || 0);
+  const freteTipo = infNFe.transp?.modFrete === '1' ? 'FOB' : 'CIF';
+  const vol = infNFe.transp?.vol;
+  const qtdVolumes = parseInt(vol?.qVol || 0);
+  const pesoReal = parseFloat(vol?.pesoL || 0);
+
   const data = extractData(infCpl, natOp);
 
   return {
@@ -216,5 +256,15 @@ export function extrairDadosXml(xmlContent) {
     filial: data?.filialVenda || null,
     microZona: data?.microZona || null,
     infCpl: infCpl.substring(0, 500),
+    cnpjEmitente: cnpjEmitente || null,
+    nomeEmitente: nomeEmitente || null,
+    endEmitente: endEmitente || null,
+    cidadeEmitente: cidadeEmitente || null,
+    ufEmitente: ufEmitente || null,
+    cnpjCliente: cnpjCliente || null,
+    valorNf: valorNf || 0,
+    freteTipo,
+    qtdVolumes: qtdVolumes || 0,
+    pesoReal: pesoReal || 0,
   };
 }

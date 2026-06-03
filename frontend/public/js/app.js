@@ -907,7 +907,7 @@ function renderContent() {
     renderIndicadores, renderAdminTransportadora, renderArquivo
   ];
   el.innerHTML = renderers[activeTab]();
-  if (activeTab === 8) setTimeout(carregarImapStatus, 50);
+  if (activeTab === 8) { setTimeout(carregarImapStatus, 50); setTimeout(carregarSswStatus, 100); }
 }
 
 // ==================== PROGRAMAÇÃO ====================
@@ -1119,6 +1119,13 @@ function renderEntregas() {
         <div style="padding:0 0 12px 0;text-align:center">
           <button class="btn btn-success" onclick="confirmarTodasEntregas()" style="font-size:1rem;padding:10px 24px">
             ✅ Marcar todas como entregues (${pendentes} pendentes)
+          </button>
+        </div>
+      ` : ''}
+      ${filters.entCarga ? `
+        <div style="padding:0 0 12px 0;text-align:center">
+          <button class="btn btn-primary" onclick="enviarNfsParaSSW()" style="font-size:1rem;padding:10px 24px">
+            🔌 Enviar NFs para SSW (${lista.filter(e => e.chave_nf).length} NFs)
           </button>
         </div>
       ` : ''}
@@ -1827,6 +1834,16 @@ function renderAdminTransportadora() {
       <div id="imap-status-card" style="font-size:0.85em;color:var(--gray)">Carregando...</div>
       <div id="imap-diagnostics" style="display:none;margin-top:12px"></div>
     </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">🔌 Integração SSW (NotFis)</div>
+      </div>
+      <div id="ssw-status-card" style="font-size:0.85em;color:var(--gray);padding:0 0 0 12px">Carregando...</div>
+      <div style="display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-primary" onclick="showSswConfig()">⚙️ Configurar</button>
+        <button class="btn btn-sm btn-primary" onclick="testarTokenSsw()">🔌 Testar Token</button>
+      </div>
+    </div>
   `;
 }
 
@@ -2383,6 +2400,81 @@ window.salvarEdicaoCadastro = async function(tipo, id) {
   } else {
     alert((result && result.error) || 'Erro ao salvar');
   }
+};
+
+// ==================== SSW (INTEGRAÇÃO NOTFIS) ====================
+window.carregarSswStatus = async function() {
+  const el = document.getElementById('ssw-status-card');
+  if (!el) return;
+  const cfg = await apiGet('/me/ssw-config');
+  el.innerHTML = cfg
+    ? `<div style="padding:12px 0">✅ Domain: <strong>${cfg.domain}</strong> | Usuário: <strong>${cfg.username}</strong> | CNPJ EDI: <strong>${cfg.cnpj_edi}</strong></div>`
+    : '<div style="padding:12px 0">⚠️ SSW não configurado</div>';
+};
+
+window.showSswConfig = async function() {
+  const cfg = await apiGet('/me/ssw-config');
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">🔌 Configuração SSW (NotFis)</div>
+      <div class="modal-row"><label>Domain *</label><input id="ssw-domain" value="${cfg?.domain || ''}" placeholder="Sigla do domínio (ex: TES)" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>Usuário *</label><input id="ssw-username" value="${cfg?.username || ''}" placeholder="Usuário fornecido pela transportadora" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>Senha *</label><input type="password" id="ssw-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>CNPJ EDI *</label><input id="ssw-cnpj" value="${cfg?.cnpj_edi || ''}" placeholder="CNPJ do cliente liberado no programa ssw2173" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarSswConfig()">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarSswConfig = async function() {
+  const domain = document.getElementById('ssw-domain')?.value.trim();
+  const username = document.getElementById('ssw-username')?.value.trim();
+  const password = document.getElementById('ssw-password')?.value;
+  const cnpj_edi = document.getElementById('ssw-cnpj')?.value.replace(/\D/g, '');
+  if (!domain || !username || !cnpj_edi) { alert('Preencha domain, usuário e CNPJ EDI'); return; }
+  const result = await apiPut('/me/ssw-config', { domain, username, password, cnpj_edi });
+  if (result) {
+    closeModal();
+    carregarSswStatus();
+  } else alert('Erro ao salvar');
+};
+
+window.testarTokenSsw = async function() {
+  const result = await apiPost('/ssw/testar-token');
+  if (!result) return;
+  if (result.sucess) {
+    alert(`✅ Token gerado com sucesso!\nValidade: ${result.validity || '6h'}\nToken: ${result.token?.slice(0, 20)}...`);
+  } else {
+    alert(`❌ Falha: ${result.message || 'Erro desconhecido'}`);
+  }
+};
+
+window.enviarNfsParaSSW = async function() {
+  if (!filters.entCarga) return;
+  if (!confirm(`Enviar todas as NFs da carga ${filters.entCarga} para o sistema SSW (NotFis)?`)) return;
+  const result = await apiPost('/ssw/enviar-carga', { carga: filters.entCarga });
+  if (!result) return;
+  let html = `<div class="modal" style="width:600px">
+    <div class="modal-title">🔌 Resultado do Envio SSW</div>
+    <div style="margin-bottom:12px">
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-label">Enviadas</div><div class="stat-value primary">${result.enviadas || 0}</div></div>
+        <div class="stat-item"><div class="stat-label">Sucesso</div><div class="stat-value success">${result.sucessos || 0}</div></div>
+        <div class="stat-item"><div class="stat-label">Falhas</div><div class="stat-value danger">${result.falhas || 0}</div></div>
+      </div>
+    </div>
+    <div style="max-height:300px;overflow-y:auto;font-size:0.8rem">`;
+  (result.resultados || []).forEach(r => {
+    const icone = r.sucesso ? '✅' : '❌';
+    html += `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${icone} ${r.notaFiscal || ''} - ${r.mensagem || ''} ${r.protocolo ? `(protocolo: ${r.protocolo})` : ''}</div>`;
+  });
+  html += `</div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Fechar</button></div>
+  </div>`;
+  showModal(html);
 };
 
 window.verDbCredentials = async function() {
