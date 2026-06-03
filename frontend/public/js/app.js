@@ -952,6 +952,7 @@ function renderProgramacao() {
             ${!c.confirma
               ? `<button class="btn btn-sm btn-primary" onclick="confirmarCarga(${c.id})" ${!c.placa ? 'disabled' : ''}>✅ Confirmar</button>`
               : `<button class="btn btn-sm btn-warning" onclick="desconfirmarCarga(${c.id})">✏️ Editar</button>`}
+            ${c.placa ? `<button class="btn btn-sm btn-primary" onclick="enviarCargaParaSSW('${c.carga}', '${c.placa}')" style="margin-left:4px" title="Enviar NFs para SSW">🔌 SSW</button>` : ''}
           </td>
         </tr>
       `).join('')}</tbody></table></div>
@@ -1119,13 +1120,6 @@ function renderEntregas() {
         <div style="padding:0 0 12px 0;text-align:center">
           <button class="btn btn-success" onclick="confirmarTodasEntregas()" style="font-size:1rem;padding:10px 24px">
             ✅ Marcar todas como entregues (${pendentes} pendentes)
-          </button>
-        </div>
-      ` : ''}
-      ${filters.entCarga ? `
-        <div style="padding:0 0 12px 0;text-align:center">
-          <button class="btn btn-primary" onclick="enviarNfsParaSSW()" style="font-size:1rem;padding:10px 24px">
-            🔌 Enviar NFs para SSW (${lista.filter(e => e.chave_nf).length} NFs)
           </button>
         </div>
       ` : ''}
@@ -2452,10 +2446,11 @@ window.testarTokenSsw = async function() {
   }
 };
 
-window.enviarNfsParaSSW = async function() {
-  if (!filters.entCarga) return;
-  if (!confirm(`Enviar todas as NFs da carga ${filters.entCarga} para o sistema SSW (NotFis)?`)) return;
-  const result = await apiPost('/ssw/enviar-carga', { carga: filters.entCarga });
+window.enviarCargaParaSSW = async function(carga, placa) {
+  const nfsCount = DATA.entregas.filter(e => e.fc === carga && e.chave_nf).length;
+  if (nfsCount === 0) { alert(`Nenhuma NF com chave encontrada para a carga ${carga}`); return; }
+  if (!confirm(`Enviar ${nfsCount} NF(s) da carga ${carga} para o SSW (placa: ${placa})?`)) return;
+  const result = await apiPost('/ssw/enviar-carga', { carga, placaColeta: placa });
   if (!result) return;
   let html = `<div class="modal" style="width:600px">
     <div class="modal-title">🔌 Resultado do Envio SSW</div>

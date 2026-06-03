@@ -2180,7 +2180,7 @@ app.post('/api/ssw/testar-token', authMiddleware, transportadoraFilter, async (r
 });
 
 app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { carga } = req.body;
+  const { carga, placaColeta } = req.body;
   if (!carga) return res.status(400).json({ error: 'carga é obrigatória' });
   const tid = req.user.transportadora_id;
   try {
@@ -2271,6 +2271,13 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
       },
       nf: g.nfs,
     }));
+
+    // Adicionar placaColeta em cada NF
+    for (const g of Object.values(grupos)) {
+      for (const nf of g.nfs) {
+        nf.placaColeta = placaColeta || '';
+      }
+    }
 
     const payload = [{
       lote: carga,
