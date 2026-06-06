@@ -547,6 +547,123 @@ app.delete('/api/admin/transportadoras/:id', authMiddleware, requireRole('saas_o
   }
 });
 
+// Tabelas que dependem de transportadora_id, ordenadas por dependência (pais primeiro, filhos depois)
+const TABLES_TRANSPORTADORA = [
+  'usuarios',        // sem FK para outras tabelas da transportadora
+  'motoristas',      // sem FK
+  'ajudantes',       // sem FK
+  'veiculos',        // sem FK
+  'cargas',          // sem FK
+  'imap_config',     // sem FK
+  'ssw_config',      // sem FK
+  'reversas',        // sem FK
+  'em_devolucao',    // sem FK
+  'arquivos',        // sem FK
+  'entregas',        // FK -> cargas(id)
+  'imap_log',        // FK -> imap_config(id)
+  'prestacao_contas',// FK -> cargas(id), usuarios(id)
+  'transferencias_log', // FK -> entregas(id), reversas(id)
+  'ssw_envio_log',   // sem FK
+];
+
+// Backup: exporta todos os dados de uma transportadora como JSON
+app.get('/api/admin/transportadoras/:id/backup', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  try {
+    const tid = parseInt(req.params.id);
+    const { rows: [transp] } = await query('SELECT * FROM transportadoras WHERE id = $1', [tid]);
+    if (!transp) return res.status(404).json({ error: 'Transportadora não encontrada' });
+
+    const backup = {
+      version: 1,
+      transportadora_id: tid,
+      exported_at: new Date().toISOString(),
+      transportadora: transp,
+      tables: {},
+    };
+
+    for (const table of TABLES_TRANSPORTADORA) {
+      const { rows } = await query(`SELECT * FROM ${table} WHERE transportadora_id = $1 ORDER BY id`, [tid]);
+      backup.tables[table] = rows;
+    }
+
+    res.json(backup);
+  } catch (err) {
+    console.error('Erro ao gerar backup:', err);
+    res.status(500).json({ error: `Erro ao gerar backup: ${err.message}` });
+  }
+});
+
+// Restore: substitui todos os dados de uma transportadora pelo backup
+app.post('/api/admin/transportadoras/:id/restore', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  const client = await getClient();
+  try {
+    const tid = parseInt(req.params.id);
+    const backup = req.body;
+
+    if (!backup || !backup.tables) {
+      return res.status(400).json({ error: 'Backup inválido' });
+    }
+
+    const { rows: [transp] } = await query('SELECT id FROM transportadoras WHERE id = $1', [tid]);
+    if (!transp) return res.status(404).json({ error: 'Transportadora não encontrada' });
+
+    const origId = backup.transportadora_id;
+    const needsRemap = origId && origId !== tid;
+
+    await client.query('BEGIN');
+
+    // 1. Deletar dados existentes (ordem inversa = filhos primeiro)
+    for (let i = TABLES_TRANSPORTADORA.length - 1; i >= 0; i--) {
+      await client.query(`DELETE FROM ${TABLES_TRANSPORTADORA[i]} WHERE transportadora_id = $1`, [tid]);
+    }
+
+    // 2. Inserir dados do backup
+    for (const table of TABLES_TRANSPORTADORA) {
+      const rows = backup.tables[table];
+      if (!rows || rows.length === 0) continue;
+
+      // Obter colunas da primeira linha
+      const cols = Object.keys(rows[0]).filter(c => c !== 'id' || table === 'usuarios');
+      // Sempre manter id para preservar referências (FKs entre tabelas)
+      const allCols = Object.keys(rows[0]);
+      const placeholders = allCols.map((_, i) => `$${i + 1}`).join(', ');
+      const colList = allCols.map(c => `"${c}"`).join(', ');
+
+      // Preparar valores (remapear transportadora_id se necessário)
+      for (const row of rows) {
+        if (needsRemap && row.transportadora_id === origId) {
+          row.transportadora_id = tid;
+        }
+        const values = allCols.map(c => row[c] !== undefined ? row[c] : null);
+        await client.query(
+          `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`,
+          values
+        );
+      }
+    }
+
+    // 3. Atualizar dados da transportadora (caso tenha mudado)
+    const t = backup.transportadora;
+    if (t) {
+      const updCols = ['nome', 'cnpj', 'email', 'telefone', 'endereco', 'cod_transp'];
+      const sets = updCols.filter(c => t[c] !== undefined).map((c, i) => `"${c}" = $${i + 1}`).join(', ');
+      const vals = updCols.filter(c => t[c] !== undefined).map(c => t[c]);
+      if (sets) {
+        await client.query(`UPDATE transportadoras SET ${sets} WHERE id = $${vals.length + 1}`, [...vals, tid]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Dados restaurados com sucesso' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao restaurar backup:', err);
+    res.status(500).json({ error: `Erro ao restaurar: ${err.message}` });
+  } finally {
+    client.release();
+  }
+});
+
 // ==================== ROTAS DA TRANSPORTADORA (cadastros) ====================
 
 function transportadoraFilter(req, res, next) {

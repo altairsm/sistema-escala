@@ -585,6 +585,8 @@ window.verTransportadora = async function(id) {
       ` : '<p style="color:var(--gray)">Credenciais PG não configuradas.</p>'}
 
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-success" onclick="fazerBackupTransportadora(${id})">💾 Backup</button>
+        <button class="btn btn-sm btn-warning" onclick="restaurarBackupTransportadora(${id})">📥 Restaurar</button>
         <button class="btn btn-sm btn-warning" onclick="regenSenhaTransportadora(${id})">🔄 Regenerar Senha Master</button>
         <button class="btn btn-sm btn-danger" onclick="excluirTransportadora(${id}, '${data.cod_transp}')">🗑️ Excluir</button>
       </div>
@@ -643,6 +645,47 @@ window.excluirTransportadora = async function(id, codTransp) {
   } else {
     alert((result && result.error) || 'Erro ao excluir transportadora');
   }
+};
+
+// ==================== BACKUP / RESTORE ====================
+window.fazerBackupTransportadora = async function(id) {
+  if (!confirm('Baixar backup completo dos dados desta transportadora?')) return;
+  const data = await apiGet(`/admin/transportadoras/${id}/backup`);
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const nome = data.transportadora?.cod_transp || `transp_${id}`;
+  a.download = `backup_${nome}_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  alert('✅ Backup baixado com sucesso!');
+};
+
+window.restaurarBackupTransportadora = async function(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!confirm(`⚠️ ATENÇÃO: Isso substituirá TODOS os dados atuais da transportadora pelos dados do backup.\n\nDeseja continuar?`)) return;
+    const text = await file.text();
+    let backup;
+    try { backup = JSON.parse(text); } catch { alert('Arquivo JSON inválido'); return; }
+    if (!backup.tables) { alert('Backup inválido — estrutura não reconhecida'); return; }
+    const result = await apiPost(`/admin/transportadoras/${id}/restore`, backup);
+    if (result && result.message) {
+      alert('✅ Backup restaurado com sucesso!');
+      closeModal();
+    } else {
+      alert((result && result.error) || 'Erro ao restaurar backup');
+    }
+  };
+  input.click();
 };
 
 // ==================== RESET DO SISTEMA ====================
