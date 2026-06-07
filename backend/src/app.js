@@ -21,7 +21,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ==================== ROTAS PÚBLICAS ====================
@@ -617,27 +617,34 @@ app.post('/api/admin/transportadoras/:id/restore', authMiddleware, requireRole('
       await client.query(`DELETE FROM ${TABLES_TRANSPORTADORA[i]} WHERE transportadora_id = $1`, [tid]);
     }
 
-    // 2. Inserir dados do backup
+    // 2. Inserir dados do backup em lotes (batches de 500)
+    const BATCH_SIZE = 500;
     for (const table of TABLES_TRANSPORTADORA) {
       const rows = backup.tables[table];
       if (!rows || rows.length === 0) continue;
 
-      // Obter colunas da primeira linha
-      const cols = Object.keys(rows[0]).filter(c => c !== 'id' || table === 'usuarios');
-      // Sempre manter id para preservar referências (FKs entre tabelas)
+      // Remapear transportadora_id se necessário
+      if (needsRemap) {
+        for (const row of rows) {
+          if (row.transportadora_id === origId) row.transportadora_id = tid;
+        }
+      }
+
       const allCols = Object.keys(rows[0]);
-      const placeholders = allCols.map((_, i) => `$${i + 1}`).join(', ');
       const colList = allCols.map(c => `"${c}"`).join(', ');
 
-      // Preparar valores (remapear transportadora_id se necessário)
-      for (const row of rows) {
-        if (needsRemap && row.transportadora_id === origId) {
-          row.transportadora_id = tid;
-        }
-        const values = allCols.map(c => row[c] !== undefined ? row[c] : null);
+      for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const batch = rows.slice(i, i + BATCH_SIZE);
+        const params = [];
+        const valueRows = batch.map(row => {
+          const vals = allCols.map(c => row[c] !== undefined ? row[c] : null);
+          const placeholders = vals.map((_, j) => `$${params.length + j + 1}`);
+          params.push(...vals);
+          return `(${placeholders.join(', ')})`;
+        });
         await client.query(
-          `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`,
-          values
+          `INSERT INTO ${table} (${colList}) VALUES ${valueRows.join(', ')} ON CONFLICT (id) DO NOTHING`,
+          params
         );
       }
     }
