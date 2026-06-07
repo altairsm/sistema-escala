@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { query } from './config/database.js';
+import { query, getClient } from './config/database.js';
 import { migrate } from './database/migrate.js';
 import { gerarToken, authMiddleware, requireRole } from './middleware/auth.js';
 import bcrypt from 'bcrypt';
