@@ -12,14 +12,22 @@
 set -e
 
 # Detecta comando do Docker Compose (v1 ou v2)
-COMPOSE="docker compose"
+COMPOSE_BASE="docker compose"
 if ! docker compose version &>/dev/null; then
   if docker-compose --version &>/dev/null; then
-    COMPOSE="docker-compose"
+    COMPOSE_BASE="docker-compose"
   else
     echo "ERRO: Docker Compose não encontrado. Instale docker-compose."
     exit 1
   fi
+fi
+
+# Testa se precisa de sudo (docker info testa acesso ao daemon)
+if docker info &>/dev/null; then
+  COMPOSE="$COMPOSE_BASE"
+else
+  echo "⚠️  docker sem permissão — usando sudo"
+  COMPOSE="sudo $COMPOSE_BASE"
 fi
 
 echo "========================================"
