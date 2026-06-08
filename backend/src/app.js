@@ -649,7 +649,13 @@ app.post('/api/admin/transportadoras/:id/restore', authMiddleware, requireRole('
       }
     }
 
-    // 3. Atualizar dados da transportadora (caso tenha mudado)
+    // 3. Atualizar sequences apos INSERTs com IDs explicitos
+    for (const table of TABLES_TRANSPORTADORA) {
+      await client.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE(MAX(id), 1)) FROM ${table} WHERE transportadora_id = $1`, [tid]);
+    }
+    await client.query(`SELECT setval(pg_get_serial_sequence('transportadoras', 'id'), COALESCE(MAX(id), 1)) FROM transportadoras`);
+
+    // 4. Atualizar dados da transportadora (caso tenha mudado)
     const t = backup.transportadora;
     if (t) {
       const updCols = ['nome', 'cnpj', 'email', 'telefone', 'endereco', 'cod_transp'];
