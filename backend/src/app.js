@@ -15,6 +15,7 @@ import multer from 'multer';
 import { sendMail, templateAcesso, templateRecuperacao, clearSmtpCache } from './config/email.js';
 import { processarXml, extrairDadosXml } from './services/xmlProcessor.js';
 import { iniciarImapService, checkAllMailboxes, testarConexao } from './services/imapService.js';
+import { iniciarFtpService, forcarVerificacaoFtp, verificarTodosFtp, testarConexaoFtp } from './services/ftpService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1867,6 +1868,103 @@ app.post('/api/imap/test', authMiddleware, transportadoraFilter, async (req, res
   }
 });
 
+// ==================== FTP CONFIG ====================
+app.get('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, host, username, intervalo_min, data_corte, active,
+              to_char(last_check_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as last_check_at
+       FROM ftp_config WHERE transportadora_id = $1`,
+      [req.user.transportadora_id]
+    );
+    res.json(rows[0] || null);
+  } catch (err) { res.status(500).json({ error: 'Erro ao buscar config FTP' }); }
+});
+
+app.put('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { host, username, password, intervalo_min, data_corte, active } = req.body;
+  if (!host || !username) {
+    return res.status(400).json({ error: 'Host e usuário FTP obrigatórios' });
+  }
+  try {
+    const { rows: existing } = await query(
+      'SELECT id, password FROM ftp_config WHERE transportadora_id = $1',
+      [req.user.transportadora_id]
+    );
+    const tid = req.user.transportadora_id;
+    const pwd = password && password !== '********' ? password : (existing.length > 0 ? existing[0].password : '');
+    if (!pwd) return res.status(400).json({ error: 'Password obrigatório na primeira configuração' });
+
+    if (existing.length > 0) {
+      await query(
+        `UPDATE ftp_config SET host=$1, username=$2, password=$3, intervalo_min=$4, data_corte=$5, active=$6, updated_at=NOW()
+         WHERE id=$7`,
+        [host, username, pwd, intervalo_min || 120, data_corte || '2026-06-09', active !== false, existing[0].id]
+      );
+    } else {
+      await query(
+        `INSERT INTO ftp_config (transportadora_id, host, username, password, intervalo_min, data_corte, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tid, host, username, pwd, intervalo_min || 120, data_corte || '2026-06-09', active !== false]
+      );
+    }
+    res.json({ message: 'Configuração FTP salva' });
+  } catch (err) {
+    console.error('Erro ao salvar FTP:', err);
+    res.status(500).json({ error: 'Erro ao salvar configuração FTP' });
+  }
+});
+
+// ==================== FTP CHECK MANUAL ====================
+app.post('/api/ftp/check', authMiddleware, async (req, res) => {
+  if (!['saas_owner', 'master'].includes(req.user.funcao)) {
+    return res.status(403).json({ error: 'Apenas saas_owner ou master podem forçar verificação FTP' });
+  }
+  try {
+    const result = await forcarVerificacaoFtp(req.user.transportadora_id);
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao iniciar verificação FTP', details: err.message });
+  }
+});
+
+// ==================== FTP LOGS ====================
+app.get('/api/ftp/logs', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+    const tid = req.user.transportadora_id;
+    const { rows: logs } = await query(`
+      SELECT id, arquivo, chave_nf, tipo, status, consulta_api_ok, nf_inserida, nf_atualizada, mensagem,
+             to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as created_at
+      FROM ftp_log
+      WHERE transportadora_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2
+    `, [tid, limit]);
+
+    const { rows: [{ total }] } = await query(
+      'SELECT COUNT(*) as total FROM ftp_log WHERE transportadora_id = $1', [tid]
+    );
+
+    res.json({ logs, total: parseInt(total) });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar logs FTP' });
+  }
+});
+
+// ==================== FTP TEST ====================
+app.post('/api/ftp/test', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM ftp_config WHERE transportadora_id = $1', [req.user.transportadora_id]);
+    if (rows.length === 0) return res.status(400).json({ error: 'FTP não configurado' });
+    const result = await testarConexaoFtp(rows[0]);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao testar conexão', details: err.message });
+  }
+});
+
 // ==================== TESTAR XML (sem salvar) ====================
 app.post('/api/testar-xml', authMiddleware, transportadoraFilter, upload.single('arquivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
@@ -2521,4 +2619,5 @@ app.use(express.static(path.join(__dirname, '../../frontend/public')));
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend rodando na porta ${PORT}`);
   iniciarImapService();
+  iniciarFtpService();
 });

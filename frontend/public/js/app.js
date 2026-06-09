@@ -969,7 +969,7 @@ function renderContent() {
     renderIndicadores, renderAdminTransportadora, renderArquivo
   ];
   el.innerHTML = renderers[activeTab]();
-  if (activeTab === 8) { setTimeout(carregarImapStatus, 50); setTimeout(carregarSswStatus, 100); }
+  if (activeTab === 8) { setTimeout(carregarImapStatus, 50); setTimeout(carregarSswStatus, 100); setTimeout(carregarFtpStatus, 150); }
 }
 
 // ==================== PROGRAMAÇÃO ====================
@@ -1900,6 +1900,17 @@ function renderAdminTransportadora() {
         <button class="btn btn-sm btn-primary" onclick="testarTokenSsw()">🔌 Testar Token</button>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📂 FTP NotFis</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-sm btn-primary" onclick="forcarVerificacaoFtp()">🔄 Forçar verificação</button>
+          <button class="btn btn-sm btn-primary" onclick="testarConexaoFtp()">🔌 Testar Conexão</button>
+          <button class="btn btn-sm btn-warning" onclick="showFtpConfig()">⚙️ Configurar</button>
+        </div>
+      </div>
+      <div id="ftp-status-card" style="font-size:0.85em;color:var(--gray);padding:0 0 0 12px">Carregando...</div>
+    </div>
   `;
 }
 
@@ -2535,6 +2546,144 @@ window.testarTokenSsw = async function() {
   if (!result) return;
   if (result.sucess) {
     alert(`✅ Token gerado com sucesso!\nValidade: ${result.validity || '6h'}\nToken: ${result.token?.slice(0, 20)}...`);
+  } else {
+    alert(`❌ Falha: ${result.message || 'Erro desconhecido'}`);
+  }
+};
+
+// ==================== FTP NOTFIS ====================
+async function carregarFtpStatus() {
+  const el = document.getElementById('ftp-status-card');
+  if (!el) return;
+  try {
+    const [cfg, logsData] = await Promise.all([
+      apiGet('/me/ftp-config'),
+      apiGet('/ftp/logs?limit=20'),
+    ]);
+    if (!cfg) {
+      el.innerHTML = '<div class="empty-state" style="padding:12px">⚠️ FTP não configurado</div>';
+      return;
+    }
+    const logs = logsData?.logs || [];
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:12px">
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Servidor</div>
+          <div>${cfg.host}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Usuário</div>
+          <div>${cfg.username}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Status</div>
+          <div>${cfg.active ? '✅ Ativo' : '⏹ Parado'}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Data Corte</div>
+          <div>${cfg.data_corte}</div>
+        </div>
+        <div style="background:var(--gray-light);padding:8px;border-radius:6px">
+          <div style="font-size:0.65rem;font-weight:600;color:var(--gray);text-transform:uppercase">Última verificação</div>
+          <div>${cfg.last_check_at || '—'}</div>
+        </div>
+      </div>
+      ${logs.length > 0 ? `
+      <div style="font-size:0.7rem;font-weight:600;color:var(--gray);text-transform:uppercase;margin-bottom:6px">Últimos processamentos</div>
+      <div class="table-container" style="max-height:300px;overflow-y:auto">
+      <table style="font-size:0.8rem">
+        <thead><tr>
+          <th>Data</th>
+          <th>Arquivo</th>
+          <th>Chave</th>
+          <th>API</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody>${logs.map(l => `
+          <tr>
+            <td>${l.created_at}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.arquivo || ''}">${l.arquivo || '—'}</td>
+            <td style="font-family:monospace;font-size:0.7rem">${l.chave_nf ? l.chave_nf.slice(0, 20) + '...' : '—'}</td>
+            <td>${l.consulta_api_ok === true ? '✅' : l.consulta_api_ok === false && l.chave_nf ? '❌' : '—'}</td>
+            <td>${l.status === 'ok' ? '✅' : '❌'} ${l.mensagem ? `<span style="font-size:0.7rem;color:var(--gray)">${l.mensagem}</span>` : ''}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table></div>` : '<div style="text-align:center;padding:12px;color:var(--gray)">Nenhum processamento registrado ainda</div>'}
+    `;
+  } catch {
+    if (el) el.innerHTML = '<span style="color:var(--red)">Erro ao carregar</span>';
+  }
+}
+
+window.showFtpConfig = async function() {
+  const cfg = await apiGet('/me/ftp-config');
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">📂 Configuração FTP (NotFis)</div>
+      <div class="modal-row">
+        <label>Host *</label>
+        <input id="ftp-host" value="${cfg?.host || ''}" placeholder="ftp.asaplog.com.br" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+      </div>
+      <div class="modal-row">
+        <label>Usuário *</label>
+        <input id="ftp-username" value="${cfg?.username || ''}" placeholder="Usuário FTP" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+      </div>
+      <div class="modal-row">
+        <label>Senha</label>
+        <input type="password" id="ftp-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Intervalo (min)</label>
+          <input type="number" id="ftp-interval" value="${cfg?.intervalo_min || 120}" min="30" max="1440" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        </div>
+        <div style="flex:1">
+          <label>Data Corte</label>
+          <input type="date" id="ftp-data-corte" value="${cfg?.data_corte || '2026-06-09'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarFtpConfig()">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarFtpConfig = async function() {
+  const host = document.getElementById('ftp-host')?.value.trim();
+  const username = document.getElementById('ftp-username')?.value.trim();
+  const password = document.getElementById('ftp-password')?.value;
+  const intervalo_min = parseInt(document.getElementById('ftp-interval')?.value) || 120;
+  const data_corte = document.getElementById('ftp-data-corte')?.value || '2026-06-09';
+  if (!host || !username) { alert('Preencha host e usuário'); return; }
+  const result = await apiPut('/me/ftp-config', { host, username, password, intervalo_min, data_corte });
+  if (result) {
+    closeModal();
+    carregarFtpStatus();
+  } else alert('Erro ao salvar');
+};
+
+window.forcarVerificacaoFtp = async function() {
+  const btn = document.querySelector('button[onclick="forcarVerificacaoFtp()"]');
+  if (btn) btn.textContent = '⏳ Aguarde...';
+  const result = await apiPost('/ftp/check');
+  if (btn) setTimeout(() => { btn.textContent = '🔄 Forçar verificação'; }, 3000);
+  if (result) {
+    if (result.error) { alert('❌ ' + result.error); return; }
+    alert('✅ Verificação FTP iniciada em background');
+    setTimeout(carregarFtpStatus, 5000);
+  }
+};
+
+window.testarConexaoFtp = async function() {
+  const btn = document.querySelector('button[onclick="testarConexaoFtp()"]');
+  if (btn) btn.textContent = '⏳ Testando...';
+  const result = await apiPost('/ftp/test');
+  if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
+  if (!result) return;
+  if (result.sucess) {
+    alert(`✅ Conexão FTP estabelecida!\nArquivos .txt encontrados: ${result.arquivos || 0}`);
   } else {
     alert(`❌ Falha: ${result.message || 'Erro desconhecido'}`);
   }
