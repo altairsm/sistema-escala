@@ -338,7 +338,7 @@ app.get('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'),
 
 // Cadastrar transportadora
 app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'), async (req, res) => {
-  const { cod_transp, nome, cnpj, email, telefone, endereco } = req.body;
+  const { cod_transp, nome, cnpj, email, telefone, endereco, ssw_domain, ssw_username, ssw_password, ssw_cnpj_edi } = req.body;
   if (!cod_transp || !nome || !cnpj || !email) {
     return res.status(400).json({ error: 'Preencha cod_transp, nome, CNPJ e email' });
   }
@@ -383,6 +383,19 @@ app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner')
       [dbUserExt, dbCreds, transpId]
     );
 
+    // Salva config SSW se informada
+    if (ssw_domain && ssw_username && ssw_password && ssw_cnpj_edi) {
+      try {
+        await query(
+          `INSERT INTO ssw_config (transportadora_id, domain, username, password, cnpj_edi)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [transpId, ssw_domain, ssw_username, ssw_password, ssw_cnpj_edi]
+        );
+      } catch (sswErr) {
+        console.warn('Aviso ao salvar config SSW:', sswErr.message);
+      }
+    }
+
     // Envia email com dados de acesso
     sendMail({
       to: email,
@@ -416,10 +429,11 @@ app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner')
 app.get('/api/admin/transportadoras/:id', authMiddleware, requireRole('saas_owner'), async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, cod_transp, nome, cnpj, email, telefone, endereco, ativo,
-              db_user_ext, db_pass_enc,
-              to_char(created_at, 'YYYY-MM-DD') as created_at
-       FROM transportadoras WHERE id = $1`, [req.params.id]
+      `SELECT t.id, t.cod_transp, t.nome, t.cnpj, t.email, t.telefone, t.endereco, t.ativo,
+              t.db_user_ext, t.db_pass_enc,
+              to_char(t.created_at, 'YYYY-MM-DD') as created_at,
+              (SELECT row_to_json(c) FROM (SELECT domain, username, cnpj_edi FROM ssw_config WHERE transportadora_id = t.id) c) as ssw_config
+       FROM transportadoras t WHERE t.id = $1`, [req.params.id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Transportadora não encontrada' });
 

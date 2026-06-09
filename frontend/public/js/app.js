@@ -511,6 +511,13 @@ window.showNovaTransportadora = function() {
         <label>Endereço</label>
         <input id="form-endereco" placeholder="Rua, número, bairro">
       </div>
+      <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:12px">
+        <div style="font-size:0.85rem;font-weight:600;margin-bottom:8px">🔌 Configuração SSW (opcional)</div>
+        <div class="modal-row"><label>Domain</label><input id="form-ssw-domain" placeholder="Ex: TES"></div>
+        <div class="modal-row"><label>Usuário</label><input id="form-ssw-username" placeholder="Usuário fornecido pela transportadora"></div>
+        <div class="modal-row"><label>Senha</label><input type="password" id="form-ssw-password" placeholder="Senha SSW"></div>
+        <div class="modal-row"><label>CNPJ EDI</label><input id="form-ssw-cnpj" placeholder="CNPJ liberado no ssw2173"></div>
+      </div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal()">Cancelar</button>
         <button class="btn btn-success" onclick="salvarTransportadora()">Salvar</button>
@@ -526,7 +533,11 @@ window.salvarTransportadora = async function() {
     cnpj: document.getElementById('form-cnpj').value.trim(),
     email: document.getElementById('form-email').value.trim(),
     telefone: document.getElementById('form-telefone').value.trim(),
-    endereco: document.getElementById('form-endereco').value.trim()
+    endereco: document.getElementById('form-endereco').value.trim(),
+    ssw_domain: document.getElementById('form-ssw-domain')?.value.trim() || '',
+    ssw_username: document.getElementById('form-ssw-username')?.value.trim() || '',
+    ssw_password: document.getElementById('form-ssw-password')?.value || '',
+    ssw_cnpj_edi: document.getElementById('form-ssw-cnpj')?.value.replace(/\D/g, '') || '',
   };
   if (!data.cod_transp || !data.nome || !data.cnpj || !data.email) {
     alert('Preencha código, nome, CNPJ e email');
@@ -583,6 +594,13 @@ window.verTransportadora = async function(id) {
         <button class="btn btn-sm btn-warning" onclick="regenDbPass(${id})">Regenerar Senha PG</button>
       </div>
       ` : '<p style="color:var(--gray)">Credenciais PG não configuradas.</p>'}
+
+      <div style="margin:12px 0;padding:10px;border-radius:8px;${data.ssw_config ? 'background:#f0fdf4;border:1px solid #bbf7d0' : 'background:#fef2f2;border:1px solid #fecaca'}">
+        <div style="font-size:0.85rem;font-weight:600;margin-bottom:4px">🔌 SSW (NotFis)</div>
+        ${data.ssw_config
+          ? `<div style="font-size:0.8rem">✅ <strong>${data.ssw_config.domain}</strong> — usuário: ${data.ssw_config.username} | CNPJ EDI: ${data.ssw_config.cnpj_edi}</div>`
+          : '<div style="font-size:0.8rem">⚠️ Não configurado</div>'}
+      </div>
 
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-sm btn-success" onclick="fazerBackupTransportadora(${id})">💾 Backup</button>
