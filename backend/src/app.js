@@ -2427,7 +2427,6 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
     const payload = [{
       lote: carga,
       dados: [{
-        cnpj: remetente.cnpj,
         remetente,
         destinatario: destinatarios,
       }],
@@ -2438,7 +2437,7 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${tokenData.token}`,
+        'Authorization': tokenData.token,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(60000),
