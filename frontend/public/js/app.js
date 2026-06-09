@@ -600,6 +600,7 @@ window.verTransportadora = async function(id) {
         ${data.ssw_config
           ? `<div style="font-size:0.8rem">✅ <strong>${data.ssw_config.domain}</strong> — usuário: ${data.ssw_config.username} | CNPJ EDI: ${data.ssw_config.cnpj_edi}</div>`
           : '<div style="font-size:0.8rem">⚠️ Não configurado</div>'}
+        <button class="btn btn-sm" onclick="editarSswConfigAdmin(${id})" style="margin-top:6px">✏️ Editar</button>
       </div>
 
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
@@ -2494,6 +2495,38 @@ window.salvarSswConfig = async function() {
   if (result) {
     closeModal();
     carregarSswStatus();
+  } else alert('Erro ao salvar');
+};
+
+window.editarSswConfigAdmin = async function(tid) {
+  const data = await apiGet(`/admin/transportadoras/${tid}`);
+  if (!data) return;
+  const cfg = data.ssw_config;
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">🔌 SSW — ${data.nome}</div>
+      <div class="modal-row"><label>Domain *</label><input id="ssw-domain" value="${cfg?.domain || ''}" placeholder="Sigla do domínio (ex: TES)" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>Usuário *</label><input id="ssw-username" value="${cfg?.username || ''}" placeholder="Usuário fornecido pela transportadora" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>Senha *</label><input type="password" id="ssw-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>CNPJ EDI *</label><input id="ssw-cnpj" value="${cfg?.cnpj_edi || ''}" placeholder="CNPJ do cliente liberado no programa ssw2173" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarSswConfigAdmin(${tid})">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarSswConfigAdmin = async function(tid) {
+  const domain = document.getElementById('ssw-domain')?.value.trim();
+  const username = document.getElementById('ssw-username')?.value.trim();
+  const password = document.getElementById('ssw-password')?.value;
+  const cnpj_edi = document.getElementById('ssw-cnpj')?.value.replace(/\D/g, '');
+  if (!domain || !username || !cnpj_edi) { alert('Preencha domain, usuário e CNPJ EDI'); return; }
+  const result = await apiPut(`/admin/transportadoras/${tid}/ssw-config`, { domain, username, password, cnpj_edi });
+  if (result) {
+    closeModal();
+    verTransportadora(tid);
   } else alert('Erro ao salvar');
 };
 

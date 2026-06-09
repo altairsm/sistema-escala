@@ -459,6 +459,35 @@ app.get('/api/admin/transportadoras/:id', authMiddleware, requireRole('saas_owne
   }
 });
 
+// Atualizar config SSW de uma transportadora (admin)
+app.put('/api/admin/transportadoras/:id/ssw-config', authMiddleware, requireRole('saas_owner'), async (req, res) => {
+  const { domain, username, password, cnpj_edi } = req.body;
+  if (!domain || !username || !cnpj_edi) {
+    return res.status(400).json({ error: 'domain, username e cnpj_edi são obrigatórios' });
+  }
+  const tid = parseInt(req.params.id, 10);
+  try {
+    const { rows: existing } = await query('SELECT id, password FROM ssw_config WHERE transportadora_id = $1', [tid]);
+    const pwd = password && password !== '********' ? password : (existing.length > 0 ? existing[0].password : '');
+    if (!pwd) return res.status(400).json({ error: 'Password é obrigatório na primeira configuração' });
+    if (existing.length > 0) {
+      await query(`
+        UPDATE ssw_config SET domain=$1, username=$2, password=$3, cnpj_edi=$4, updated_at=NOW()
+        WHERE transportadora_id=$5
+      `, [domain, username, pwd, cnpj_edi, tid]);
+    } else {
+      await query(`
+        INSERT INTO ssw_config (transportadora_id, domain, username, password, cnpj_edi)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [tid, domain, username, pwd, cnpj_edi]);
+    }
+    res.json({ message: 'Configuração SSW atualizada', ssw_config: { domain, username, cnpj_edi } });
+  } catch (err) {
+    console.error('Erro ao salvar config SSW:', err.message);
+    res.status(500).json({ error: 'Erro ao salvar config' });
+  }
+});
+
 // Regenerar senha do master de uma transportadora
 app.post('/api/admin/transportadoras/:id/regen-senha', authMiddleware, requireRole('saas_owner'), async (req, res) => {
   try {
