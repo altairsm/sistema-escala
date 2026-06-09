@@ -99,9 +99,11 @@ async function processarFtpConfig(config) {
       secure: false,
     });
 
+    await client.cd(config.path || 'NOTFIS');
     const lista = await client.list();
+    const dataCorte = config.data_corte instanceof Date ? config.data_corte : new Date(config.data_corte + 'T00:00:00Z');
     const arquivos = lista
-      .filter(f => f.name.endsWith('.txt') && f.modifiedAt >= config.data_corte)
+      .filter(f => f.name.endsWith('.txt') && f.modifiedAt >= dataCorte)
       .sort((a, b) => a.name.localeCompare(b.name));
 
     for (const arq of arquivos) {

@@ -1872,7 +1872,7 @@ app.post('/api/imap/test', authMiddleware, transportadoraFilter, async (req, res
 app.get('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, host, username, intervalo_min, data_corte, active,
+      `SELECT id, host, username, path, intervalo_min, data_corte, active,
               to_char(last_check_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as last_check_at
        FROM ftp_config WHERE transportadora_id = $1`,
       [req.user.transportadora_id]
@@ -1882,7 +1882,7 @@ app.get('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, 
 });
 
 app.put('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { host, username, password, intervalo_min, data_corte, active } = req.body;
+  const { host, username, password, path, intervalo_min, data_corte, active } = req.body;
   if (!host || !username) {
     return res.status(400).json({ error: 'Host e usuário FTP obrigatórios' });
   }
@@ -1897,15 +1897,15 @@ app.put('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, 
 
     if (existing.length > 0) {
       await query(
-        `UPDATE ftp_config SET host=$1, username=$2, password=$3, intervalo_min=$4, data_corte=$5, active=$6, updated_at=NOW()
-         WHERE id=$7`,
-        [host, username, pwd, intervalo_min || 120, data_corte || '2026-06-09', active !== false, existing[0].id]
+        `UPDATE ftp_config SET host=$1, username=$2, password=$3, path=$4, intervalo_min=$5, data_corte=$6, active=$7, updated_at=NOW()
+         WHERE id=$8`,
+        [host, username, pwd, path || 'NOTFIS', intervalo_min || 120, data_corte || '2026-06-09', active !== false, existing[0].id]
       );
     } else {
       await query(
-        `INSERT INTO ftp_config (transportadora_id, host, username, password, intervalo_min, data_corte, active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [tid, host, username, pwd, intervalo_min || 120, data_corte || '2026-06-09', active !== false]
+        `INSERT INTO ftp_config (transportadora_id, host, username, password, path, intervalo_min, data_corte, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [tid, host, username, pwd, path || 'NOTFIS', intervalo_min || 120, data_corte || '2026-06-09', active !== false]
       );
     }
     res.json({ message: 'Configuração FTP salva' });

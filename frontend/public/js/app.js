@@ -2632,6 +2632,10 @@ window.showFtpConfig = async function() {
         <label>Senha</label>
         <input type="password" id="ftp-password" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
       </div>
+      <div class="modal-row">
+        <label>Pasta</label>
+        <input id="ftp-path" value="${cfg?.path || 'NOTFIS'}" placeholder="NOTFIS" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+      </div>
       <div class="modal-row" style="display:flex;gap:12px">
         <div style="flex:1">
           <label>Intervalo (min)</label>
@@ -2654,10 +2658,11 @@ window.salvarFtpConfig = async function() {
   const host = document.getElementById('ftp-host')?.value.trim();
   const username = document.getElementById('ftp-username')?.value.trim();
   const password = document.getElementById('ftp-password')?.value;
+  const path = document.getElementById('ftp-path')?.value.trim() || 'NOTFIS';
   const intervalo_min = parseInt(document.getElementById('ftp-interval')?.value) || 120;
   const data_corte = document.getElementById('ftp-data-corte')?.value || '2026-06-09';
   if (!host || !username) { alert('Preencha host e usuário'); return; }
-  const result = await apiPut('/me/ftp-config', { host, username, password, intervalo_min, data_corte });
+  const result = await apiPut('/me/ftp-config', { host, username, password, path, intervalo_min, data_corte });
   if (result) {
     closeModal();
     carregarFtpStatus();
