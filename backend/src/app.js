@@ -1680,6 +1680,19 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
                FROM em_devolucao d WHERE d.transportadora_id = $1
                ORDER BY d.created_at DESC`;
         break;
+      case 'cargas-chaves':
+        sql = `SELECT e.cnpj_emitente AS "CNPJ Remetente",
+                      e.chave_nf AS "Chave NF",
+                      e.fc AS "Nº Carga"
+               FROM entregas e
+               WHERE e.transportadora_id = $1
+                 AND e.chave_nf IS NOT NULL AND e.chave_nf != ''
+                 AND e.cnpj_emitente IS NOT NULL AND e.cnpj_emitente != ''
+                 AND (e.remessa = 'VENDA' OR e.remessa IS NULL)`;
+        if (dataInicio) sql += ` AND e.data_nf >= '${dataInicio}'`;
+        if (dataFim) sql += ` AND e.data_nf <= '${dataFim}'`;
+        sql += ' ORDER BY e.fc, e.chave_nf';
+        break;
       default:
         return res.status(400).json({ error: 'Tipo de relatório inválido' });
     }

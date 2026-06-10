@@ -993,6 +993,7 @@ function renderProgramacao() {
             <option value="pendente">Pendente</option>
           </datalist>
         </div>
+        <button class="btn btn-sm btn-primary" onclick="exportarCargasChaves()" style="margin-left:8px;align-self:flex-end">📥 Exportar XLSX</button>
       </div>
       <div class="stats-grid">
         <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value primary">${cargas.length}</div></div>
@@ -2667,6 +2668,23 @@ window.salvarFtpConfig = async function() {
     closeModal();
     carregarFtpStatus();
   } else alert('Erro ao salvar');
+};
+
+window.exportarCargasChaves = async function() {
+  const inicio = filters.cargaInicio || daysAgo(30);
+  const fim = filters.cargaFim || today();
+  const token = getToken();
+  const url = `${API}/relatorios/cargas-chaves?dataInicio=${inicio}&dataFim=${fim}&formato=xlsx`;
+  try {
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) { const msg = await res.text(); alert(msg); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `cargas_chaves_${inicio}_${fim}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch { alert('Erro ao baixar'); }
 };
 
 window.forcarVerificacaoFtp = async function() {
