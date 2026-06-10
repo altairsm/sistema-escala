@@ -1681,10 +1681,12 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
                ORDER BY d.created_at DESC`;
         break;
       case 'cargas-chaves':
-        sql = `SELECT e.cnpj_emitente AS "CNPJ Remetente",
+        sql = `SELECT c.data_entrega AS "Data Entrega",
+                      e.cnpj_emitente AS "CNPJ Remetente",
                       e.chave_nf AS "Chave NF",
                       e.fc AS "Nº Carga"
                FROM entregas e
+               LEFT JOIN cargas c ON c.carga = e.fc AND c.transportadora_id = e.transportadora_id
                WHERE e.transportadora_id = $1
                  AND e.chave_nf IS NOT NULL AND e.chave_nf != ''
                  AND e.cnpj_emitente IS NOT NULL AND e.cnpj_emitente != ''
