@@ -119,14 +119,15 @@ app.post('/api/install', async (req, res) => {
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
-  const { email, senha } = req.body;
+  const email = (req.body.email || '').toLowerCase().trim();
+  const { senha } = req.body;
   if (!email || !senha) {
     return res.status(400).json({ error: 'Email e senha obrigatórios' });
   }
 
   try {
     // Tenta como SaaS owner
-    const { rows: saas } = await query('SELECT * FROM saas_owner WHERE email = $1', [email]);
+    const { rows: saas } = await query('SELECT * FROM saas_owner WHERE LOWER(email) = $1', [email]);
     if (saas.length > 0) {
       const valido = await bcrypt.compare(senha, saas[0].senha_hash);
       if (!valido) return res.status(401).json({ error: 'Senha inválida' });
@@ -140,7 +141,7 @@ app.post('/api/auth/login', async (req, res) => {
       `SELECT u.*, t.nome as transportadora_nome, t.cod_transp
        FROM usuarios u
        JOIN transportadoras t ON t.id = u.transportadora_id
-       WHERE u.email = $1 AND u.ativo = true`, [email]
+       WHERE LOWER(u.email) = $1 AND u.ativo = true`, [email]
     );
     if (usuarios.length > 0) {
       const u = usuarios[0];
@@ -195,12 +196,12 @@ app.post('/api/auth/primeiro-acesso', authMiddleware, async (req, res) => {
 
 // Esqueci minha senha
 app.post('/api/auth/esqueci-senha', async (req, res) => {
-  const { email } = req.body;
+  const email = (req.body.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email obrigatório' });
 
   try {
     // Busca em saas_owner
-    const { rows: saas } = await query('SELECT id, email FROM saas_owner WHERE email = $1', [email]);
+    const { rows: saas } = await query('SELECT id, email FROM saas_owner WHERE LOWER(email) = $1', [email]);
     if (saas.length > 0) {
       const novaSenha = crypto.randomBytes(4).toString('hex') + 'A1@';
       const senha_hash = await bcrypt.hash(novaSenha, 10);
@@ -217,7 +218,7 @@ app.post('/api/auth/esqueci-senha', async (req, res) => {
 
     // Busca em usuarios
     const { rows: users } = await query(
-      'SELECT u.id, u.email FROM usuarios u WHERE u.email = $1 AND u.ativo = true', [email]
+      'SELECT u.id, u.email FROM usuarios u WHERE LOWER(u.email) = $1 AND u.ativo = true', [email]
     );
     if (users.length > 0) {
       const novaSenha = crypto.randomBytes(4).toString('hex') + 'A1@';
@@ -339,7 +340,8 @@ app.get('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'),
 
 // Cadastrar transportadora
 app.post('/api/admin/transportadoras', authMiddleware, requireRole('saas_owner'), async (req, res) => {
-  const { cod_transp, nome, cnpj, email, telefone, endereco, ssw_domain, ssw_username, ssw_password, ssw_cnpj_edi } = req.body;
+  const { cod_transp, nome, cnpj, telefone, endereco, ssw_domain, ssw_username, ssw_password, ssw_cnpj_edi } = req.body;
+  const email = (req.body.email || '').toLowerCase().trim();
   if (!cod_transp || !nome || !cnpj || !email) {
     return res.status(400).json({ error: 'Preencha cod_transp, nome, CNPJ e email' });
   }
@@ -1044,7 +1046,8 @@ app.post('/api/usuarios', authMiddleware, transportadoraFilter, async (req, res)
   if (!['master', 'admin'].includes(req.user.funcao)) {
     return res.status(403).json({ error: 'Acesso não autorizado' });
   }
-  const { nome, email, funcao } = req.body;
+  const { nome, funcao } = req.body;
+  const email = (req.body.email || '').toLowerCase().trim();
   if (!nome || !email || !funcao) {
     return res.status(400).json({ error: 'Nome, email e função obrigatórios' });
   }

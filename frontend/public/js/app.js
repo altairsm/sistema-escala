@@ -117,7 +117,7 @@ function renderLoginPage(root) {
 }
 
 window.handleLogin = async function() {
-  const email = document.getElementById('login-email').value;
+  const email = document.getElementById('login-email').value.toLowerCase().trim();
   const senha = document.getElementById('login-senha').value;
   const errEl = document.getElementById('login-error');
   if (!email || !senha) { errEl.textContent = 'Preencha email e senha'; return; }
