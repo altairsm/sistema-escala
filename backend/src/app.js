@@ -1246,6 +1246,32 @@ app.put('/api/entregas/confirmar-por-carga', authMiddleware, transportadoraFilte
   }
 });
 
+app.put('/api/entregas/transferir-lote', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { ids, novaCarga, carga_anterior } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids é obrigatório' });
+  if (!novaCarga) return res.status(400).json({ error: 'novaCarga é obrigatória' });
+  try {
+    const { rows } = await query(`
+      UPDATE entregas SET fc = $1, updated_at = NOW()
+      WHERE id = ANY($2::int[]) AND transportadora_id = $3
+        AND confirma_entrega IS NULL
+        AND (devolucao IS NULL OR devolucao = false)
+      RETURNING *
+    `, [novaCarga, ids, req.user.transportadora_id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Nenhuma entrega encontrada para transferir' });
+    for (const e of rows) {
+      await query(`
+        INSERT INTO transferencias_log (transportadora_id, entrega_id, tipo, nf, carga_anterior, carga_nova, usuario_id, usuario_nome)
+        VALUES ($1, $2, 'entrega', $3, $4, $5, $6, $7)
+      `, [req.user.transportadora_id, e.id, e.nf, carga_anterior || e.fc, novaCarga, req.user.id, req.user.nome || req.user.email || 'Sistema']);
+    }
+    res.json({ updated: rows.length });
+  } catch (err) {
+    console.error('Erro ao transferir NF em lote:', err.message);
+    res.status(500).json({ error: 'Erro ao transferir NF em lote' });
+  }
+});
+
 app.put('/api/entregas/:id/transferir', authMiddleware, transportadoraFilter, async (req, res) => {
   const { novaCarga } = req.body;
   if (!novaCarga) return res.status(400).json({ error: 'novaCarga é obrigatória' });

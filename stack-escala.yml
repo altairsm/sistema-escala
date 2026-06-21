@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  backend:
+    image: altairsm/sistema-escala:latest
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres_postgres
+      DB_PORT: 5432
+      DB_NAME: escala_db
+      DB_USER: escala_admin
+      DB_PASSWORD: f18f8dd7ad0683fb97c91eb4852ff645
+      JWT_SECRET: escala_jwt_secret_key_2024
+      PORT: 3000
+      APP_URL: https://via.sactudo.com.br
+      MAILER_SENDER_EMAIL: gestao@sactudo.com.br
+      MAILER_SENDER_NAME: Gestão de Escala
+      SMTP_DOMAIN: sactudo.com.br
+      SMTP_ADDRESS: smtp.titan.email
+      SMTP_PORT: "465"
+      SMTP_SSL: "true"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_AUTHENTICATION: login
+      SMTP_ENABLE_STARTTLS_AUTO: "true"
+      SMTP_OPENSSL_VERIFY_MODE: peer
+      MAILER_INBOUND_EMAIL_DOMAIN: sactudo.com.br
+    networks:
+      - sactudonet
+
+  nginx:
+    image: altairsm/sistema-escala-nginx:latest
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - sactudonet
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.escala.rule=Host(`via.sactudo.com.br`)"
+        - "traefik.http.routers.escala.entrypoints=websecure"
+        - "traefik.http.routers.escala.tls=true"
+        - "traefik.http.routers.escala.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.escala.loadbalancer.server.port=80"
+
+networks:
+  sactudonet:
+    external: true

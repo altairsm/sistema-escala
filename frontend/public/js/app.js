@@ -1184,12 +1184,15 @@ function renderEntregas() {
           <button class="btn btn-success" onclick="confirmarTodasEntregas()" style="font-size:1rem;padding:10px 24px">
             ✅ Marcar todas como entregues (${pendentes} pendentes)
           </button>
+          <button class="btn btn-warning" onclick="transferirSelecionadas()" style="font-size:1rem;padding:10px 24px;margin-left:8px">
+            ↔️ Transferir selecionadas
+          </button>
         </div>
       ` : ''}
-      <div class="table-container"><table><thead><tr><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
-      <tbody>${lista.length === 0 ? `<tr><td colspan="6"><div class="empty-state">📭 Nenhuma entrega</div></td></tr>` : lista.map(e => `
+      <div class="table-container"><table><thead><tr><th style="width:32px"><input type="checkbox" id="selectAllEntregas" onchange="toggleSelectAllEntregas(this)" style="transform:scale(1.1)"></th><th>NF</th><th>Carga</th><th>Cliente</th><th>Bairro</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${lista.length === 0 ? `<tr><td colspan="7"><div class="empty-state">📭 Nenhuma entrega</div></td></tr>` : lista.map(e => `
         <tr>
-          <td>${e.nf}</td>
+          <td style="text-align:center">${e.confirma_entrega === null ? `<input type="checkbox" class="ent-selecionar" value="${e.id}" style="transform:scale(1.1)">` : ''}</td><td>${e.nf}</td>
           <td><span class="badge badge-info">${e.fc}</span>${e.confirma_entrega === null ? ` <button class="btn btn-sm" onclick="openTransferirNF(${e.id}, '${e.fc}')" style="font-size:0.75rem;padding:2px 6px" title="Transferir para outra carga">↔️</button>` : ''}</td>
           <td>${(e.cliente || '—').slice(0, 35)}</td>
           <td>${e.bairro || '—'}</td>
@@ -1238,6 +1241,50 @@ window.confirmarTodasEntregas = async function() {
     });
     renderContent(); renderTabs();
   } else alert('Erro ao confirmar entregas');
+};
+
+window.toggleSelectAllEntregas = function(el) {
+  document.querySelectorAll('.ent-selecionar').forEach(c => c.checked = el.checked);
+};
+
+window.transferirSelecionadas = function() {
+  const checks = document.querySelectorAll('.ent-selecionar:checked');
+  const ids = Array.from(checks).map(c => parseInt(c.value));
+  if (ids.length === 0) { alert('Selecione ao menos uma NF'); return; }
+  const cargas = [...new Set(DATA.cargas.map(c => c.carga))].sort();
+  showModal(`
+    <div class="modal">
+      <div class="modal-title">↔️ Transferir ${ids.length} NF(s) para outra carga</div>
+      <div class="modal-row">
+        <label>Carga atual</label>
+        <input value="${filters.entCarga}" disabled style="width:100%;padding:8px;border-radius:8px;background:#f1f5f9;color:#64748b">
+      </div>
+      <div class="modal-row">
+        <label>Nova carga *</label>
+        <input list="transf-carga-list" id="nova-carga" placeholder="Digite ou selecione..." style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b">
+        <datalist id="transf-carga-list">${cargas.map(c => `<option value="${c}">`).join('')}</datalist>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-warning" onclick="salvarTransferirSelecionadas([${ids.join(',')}])">💾 Transferir ${ids.length} NF(s)</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarTransferirSelecionadas = async function(ids) {
+  const novaCarga = document.getElementById('nova-carga')?.value.trim();
+  if (!novaCarga) { alert('Informe a nova carga'); return; }
+  const result = await apiPut('/entregas/transferir-lote', { ids, novaCarga, carga_anterior: filters.entCarga });
+  if (result) {
+    DATA.entregas.forEach(e => {
+      if (ids.includes(e.id) && e.fc === filters.entCarga) {
+        e.fc = novaCarga;
+      }
+    });
+    closeModal();
+    renderContent();
+  } else alert('Erro ao transferir NFs');
 };
 
 window.openTransferirNF = function(id, cargaAtual) {
