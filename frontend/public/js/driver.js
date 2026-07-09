@@ -259,22 +259,27 @@ window.openChatwoot = async function(entregaId) {
 
 // ==================== CHATWOOT WIDGET SUPORTE ====================
 function initChatwootWidget() {
-  if (!chatwootConfig || !chatwootConfig.suporte_website_token || !chatwootConfig.api_url) {
-    document.getElementById('supportFab').classList.remove('visible');
+  if (!chatwootConfig || !chatwootConfig.suporte_website_token) {
+    document.getElementById('supportFab')?.classList.remove('visible');
     return;
   }
   if (window.$chatwoot) return;
 
-  const baseUrl = chatwootConfig.api_url.replace(/\/+$/, '');
-  const g = document.createElement('script');
-  g.src = baseUrl + '/packs/js/sdk.js';
+  window.chatwootSettings = {
+    position: "right",
+    type: "standard",
+    launcherTitle: "Fale suporte a entrega",
+  };
+
+  const BASE_URL = chatwootConfig.api_url || "https://app.sactudo.com.br";
+  const g = document.createElement("script");
+  g.src = BASE_URL + "/packs/js/sdk.js";
   g.async = true;
-  g.defer = true;
   document.body.appendChild(g);
-  g.onload = function() {
+  g.onload = function () {
     window.chatwootSDK.run({
       websiteToken: chatwootConfig.suporte_website_token,
-      baseUrl: baseUrl,
+      baseUrl: BASE_URL,
     });
     if (user) {
       setTimeout(() => {
