@@ -1963,6 +1963,44 @@ app.put('/api/me/ftp-config', authMiddleware, transportadoraFilter, async (req, 
   }
 });
 
+// ==================== CHATWOOT CONFIG (ME) ====================
+app.get('/api/me/chatwoot-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM chatwoot_config WHERE transportadora_id = $1', [req.user.transportadora_id]);
+    if (rows.length === 0) return res.json(null);
+    const cfg = rows[0];
+    if (cfg.api_key) cfg.api_key = '********';
+    res.json(cfg);
+  } catch (err) {
+    console.error('Erro ao buscar config Chatwoot:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar config' });
+  }
+});
+
+app.put('/api/me/chatwoot-config', authMiddleware, transportadoraFilter, async (req, res) => {
+  const { api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url } = req.body;
+  const tid = req.user.transportadora_id;
+  try {
+    const { rows: existing } = await query('SELECT id, api_key FROM chatwoot_config WHERE transportadora_id = $1', [tid]);
+    const key = api_key && api_key !== '********' ? api_key : (existing.length > 0 ? existing[0].api_key : '');
+    if (existing.length > 0) {
+      await query(`
+        UPDATE chatwoot_config SET api_url=$1, account_id=$2, inbox_id=$3, website_token=$4, api_key=$5, n8n_webhook_url=$6, updated_at=NOW()
+        WHERE transportadora_id=$7
+      `, [api_url, account_id, inbox_id, website_token, key, n8n_webhook_url, tid]);
+    } else {
+      await query(`
+        INSERT INTO chatwoot_config (transportadora_id, api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [tid, api_url, account_id, inbox_id, website_token, key, n8n_webhook_url]);
+    }
+    res.json({ message: 'Configuração Chatwoot salva' });
+  } catch (err) {
+    console.error('Erro ao salvar config Chatwoot:', err.message);
+    res.status(500).json({ error: 'Erro ao salvar' });
+  }
+});
+
 // ==================== FTP CHECK MANUAL ====================
 app.post('/api/ftp/check', authMiddleware, async (req, res) => {
   if (!['saas_owner', 'master'].includes(req.user.funcao)) {

@@ -971,7 +971,7 @@ function renderContent() {
     renderIndicadores, renderAdminTransportadora, renderArquivo
   ];
   el.innerHTML = renderers[activeTab]();
-  if (activeTab === 8) { setTimeout(carregarImapStatus, 50); setTimeout(carregarSswStatus, 100); setTimeout(carregarFtpStatus, 150); }
+  if (activeTab === 8) { setTimeout(carregarImapStatus, 50); setTimeout(carregarSswStatus, 100); setTimeout(carregarFtpStatus, 150); setTimeout(carregarChatwootStatus, 200); }
 }
 
 // ==================== PROGRAMAÇÃO ====================
@@ -1961,6 +1961,16 @@ function renderAdminTransportadora() {
       </div>
       <div id="ftp-status-card" style="font-size:0.85em;color:var(--gray);padding:0 0 0 12px">Carregando...</div>
     </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">💬 Chatwoot (WhatsApp)</div>
+      </div>
+      <div id="chatwoot-status-card" style="font-size:0.85em;color:var(--gray);padding:0 0 0 12px">Carregando...</div>
+      <div style="display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-warning" onclick="showChatwootConfig()">⚙️ Configurar</button>
+        <button class="btn btn-sm btn-primary" onclick="testarChatwootConexao()">🔌 Testar Conexão</button>
+      </div>
+    </div>
   `;
 }
 
@@ -2758,6 +2768,78 @@ window.testarConexaoFtp = async function() {
     alert(`✅ Conexão FTP estabelecida!\nArquivos .txt encontrados: ${result.arquivos || 0}`);
   } else {
     alert(`❌ Falha: ${result.message || 'Erro desconhecido'}`);
+  }
+};
+
+// ==================== CHATWOOT CONFIG ====================
+async function carregarChatwootStatus() {
+  const el = document.getElementById('chatwoot-status-card');
+  if (!el) return;
+  const cfg = await apiGet('/me/chatwoot-config');
+  el.innerHTML = cfg
+    ? `<div style="padding:12px 0">✅ URL: <strong>${cfg.api_url}</strong> | Account: <strong>${cfg.account_id || '—'}</strong> | Inbox: <strong>${cfg.inbox_id || '—'}</strong></div>`
+    : '<div style="padding:12px 0">⚠️ Chatwoot não configurado</div>';
+}
+
+window.showChatwootConfig = async function() {
+  const cfg = await apiGet('/me/chatwoot-config');
+  showModal(`
+    <div class="modal" style="width:520px">
+      <div class="modal-title">💬 Configuração Chatwoot (WhatsApp)</div>
+      <div class="modal-row"><label>API URL *</label><input id="cw-api-url" value="${cfg?.api_url || 'https://app.chatwoot.com'}" placeholder="https://app.chatwoot.com" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1"><label>Account ID</label><input type="number" id="cw-account-id" value="${cfg?.account_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div style="flex:1"><label>Inbox ID</label><input type="number" id="cw-inbox-id" value="${cfg?.inbox_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      </div>
+      <div class="modal-row"><label>Website Token</label><input id="cw-website-token" value="${cfg?.website_token || ''}" placeholder="Token do widget" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>API Key</label><input type="password" id="cw-api-key" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>N8N Webhook URL</label><input id="cw-n8n-url" value="${cfg?.n8n_webhook_url || ''}" placeholder="https://n8n.seudominio.com/webhook/..." style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarChatwootConfig()">💾 Salvar</button>
+      </div>
+    </div>
+  `);
+};
+
+window.salvarChatwootConfig = async function() {
+  const api_url = document.getElementById('cw-api-url')?.value.trim();
+  const account_id = parseInt(document.getElementById('cw-account-id')?.value) || null;
+  const inbox_id = parseInt(document.getElementById('cw-inbox-id')?.value) || null;
+  const website_token = document.getElementById('cw-website-token')?.value.trim() || null;
+  const api_key = document.getElementById('cw-api-key')?.value;
+  const n8n_webhook_url = document.getElementById('cw-n8n-url')?.value.trim() || null;
+  if (!api_url) { alert('API URL é obrigatória'); return; }
+  const result = await apiPut('/me/chatwoot-config', { api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url });
+  if (result) {
+    closeModal();
+    carregarChatwootStatus();
+  } else alert('Erro ao salvar');
+};
+
+window.testarChatwootConexao = async function() {
+  const cfg = await apiGet('/me/chatwoot-config');
+  if (!cfg || !cfg.api_key || cfg.api_key === '********') {
+    alert('Configure a API Key primeiro');
+    return;
+  }
+  const btn = document.querySelector('button[onclick="testarChatwootConexao()"]');
+  if (btn) btn.textContent = '⏳ Testando...';
+  try {
+    const resp = await fetch(`${cfg.api_url}/api/v1/accounts/${cfg.account_id || 1}/inboxes`, {
+      headers: { 'api_access_token': cfg.api_key },
+    });
+    if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
+    if (resp.ok) {
+      const data = await resp.json();
+      const count = data?.payload?.length || 0;
+      alert(`✅ Conexão Chatwoot OK!\nInboxes encontrados: ${count}`);
+    } else {
+      alert(`❌ Falha: HTTP ${resp.status} - ${resp.statusText}`);
+    }
+  } catch (err) {
+    if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
+    alert(`❌ Erro: ${err.message}`);
   }
 };
 
