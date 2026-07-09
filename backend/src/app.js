@@ -2002,6 +2002,27 @@ app.put('/api/me/chatwoot-config', authMiddleware, transportadoraFilter, async (
   }
 });
 
+app.post('/api/me/chatwoot-test', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT api_url, account_id, api_key FROM chatwoot_config WHERE transportadora_id = $1 AND ativo = true', [req.user.transportadora_id]);
+    const cfg = rows[0];
+    if (!cfg || !cfg.api_key) return res.json({ ok: false, message: 'API Key não configurada' });
+    const resp = await fetch(`${cfg.api_url}/api/v1/accounts/${cfg.account_id || 1}/inboxes`, {
+      headers: { 'api_access_token': cfg.api_key },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const count = data?.payload?.length || 0;
+      res.json({ ok: true, message: `Conexão OK! Inboxes: ${count}` });
+    } else {
+      res.json({ ok: false, message: `HTTP ${resp.status}: ${resp.statusText}` });
+    }
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
 // ==================== FTP CHECK MANUAL ====================
 app.post('/api/ftp/check', authMiddleware, async (req, res) => {
   if (!['saas_owner', 'master'].includes(req.user.funcao)) {
@@ -2704,7 +2725,7 @@ app.post('/api/ssw/enviar-carga', authMiddleware, transportadoraFilter, async (r
 app.get('/api/motorista/chatwoot-config', authMiddleware, async (req, res) => {
   try {
     const { rows } = await query(
-      'SELECT api_url, account_id, inbox_id, website_token FROM chatwoot_config WHERE transportadora_id = $1 AND ativo = true',
+      'SELECT api_url, account_id, inbox_id, suporte_inbox_id, suporte_website_token FROM chatwoot_config WHERE transportadora_id = $1 AND ativo = true',
       [req.user.transportadora_id]
     );
     res.json(rows[0] || null);

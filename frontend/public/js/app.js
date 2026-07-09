@@ -2825,28 +2825,15 @@ window.salvarChatwootConfig = async function() {
 };
 
 window.testarChatwootConexao = async function() {
-  const cfg = await apiGet('/me/chatwoot-config');
-  if (!cfg || !cfg.api_key || cfg.api_key === '********') {
-    alert('Configure a API Key primeiro');
-    return;
-  }
   const btn = document.querySelector('button[onclick="testarChatwootConexao()"]');
   if (btn) btn.textContent = '⏳ Testando...';
-  try {
-    const resp = await fetch(`${cfg.api_url}/api/v1/accounts/${cfg.account_id || 1}/inboxes`, {
-      headers: { 'api_access_token': cfg.api_key },
-    });
-    if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
-    if (resp.ok) {
-      const data = await resp.json();
-      const count = data?.payload?.length || 0;
-      alert(`✅ Conexão Chatwoot OK!\nInboxes encontrados: ${count}`);
-    } else {
-      alert(`❌ Falha: HTTP ${resp.status} - ${resp.statusText}`);
-    }
-  } catch (err) {
-    if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
-    alert(`❌ Erro: ${err.message}`);
+  const result = await apiPost('/me/chatwoot-test');
+  if (btn) setTimeout(() => { btn.textContent = '🔌 Testar Conexão'; }, 3000);
+  if (!result) return;
+  if (result.ok) {
+    alert(`✅ ${result.message}`);
+  } else {
+    alert(`❌ ${result.message}`);
   }
 };
 
