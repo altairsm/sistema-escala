@@ -2864,6 +2864,103 @@ app.post('/api/motorista/entregas/:id/insucesso', authMiddleware, async (req, re
   }
 });
 
+// Buscar mensagens do Chatwoot para uma entrega
+app.get('/api/motorista/entregas/:id/mensagens', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT e.id, e.cliente, e.whatsapp_jid, e.chatwoot_conversation_id,
+             cc.api_url, cc.account_id, cc.api_key
+      FROM entregas e
+      JOIN chatwoot_config cc ON cc.transportadora_id = e.transportadora_id AND cc.ativo = true
+      WHERE e.id = $1 AND e.transportadora_id = $2
+    `, [req.params.id, req.user.transportadora_id]);
+
+    const ent = rows[0];
+    if (!ent) return res.json([]);
+    if (!ent.chatwoot_conversation_id || !ent.whatsapp_jid) return res.json([]);
+
+    const resp = await fetch(
+      `${ent.api_url}/api/v1/accounts/${ent.account_id}/conversations/${ent.chatwoot_conversation_id}/messages`,
+      { headers: { 'api_access_token': ent.api_key }, signal: AbortSignal.timeout(10000) }
+    );
+
+    if (!resp.ok) return res.json([]);
+
+    const data = await resp.json();
+    const messages = (data.payload || data.messages || [])
+      .filter(m => m.message_type === 0 || m.message_type === 1)
+      .map(m => ({
+        id: m.id,
+        content: m.content,
+        message_type: m.message_type,
+        created_at: m.created_at,
+      }));
+
+    res.json(messages);
+  } catch (err) {
+    console.error('Erro ao buscar mensagens Chatwoot:', err.message);
+    res.json([]);
+  }
+});
+
+// Enviar mensagem no Chatwoot como motorista
+app.post('/api/motorista/entregas/:id/mensagens', authMiddleware, async (req, res) => {
+  const { content } = req.body;
+  if (!content || !content.trim()) return res.status(400).json({ error: 'Conteúdo da mensagem é obrigatório' });
+
+  try {
+    const { rows } = await query(`
+      SELECT e.id, e.cliente, e.whatsapp_jid, e.chatwoot_conversation_id,
+             cc.api_url, cc.account_id, cc.api_key
+      FROM entregas e
+      JOIN chatwoot_config cc ON cc.transportadora_id = e.transportadora_id AND cc.ativo = true
+      WHERE e.id = $1 AND e.transportadora_id = $2
+    `, [req.params.id, req.user.transportadora_id]);
+
+    let ent = rows[0];
+    if (!ent || !ent.whatsapp_jid) return res.status(400).json({ error: 'WhatsApp não disponível' });
+
+    // Se não tem conversa, tenta sync
+    if (!ent.chatwoot_conversation_id) {
+      const syncResult = await syncChatwootEntrega(req.params.id, req.user.transportadora_id);
+      if (!syncResult) return res.status(502).json({ error: 'Falha ao criar conversa' });
+      ent.chatwoot_conversation_id = syncResult.conversation_id;
+    }
+
+    const resp = await fetch(
+      `${ent.api_url}/api/v1/accounts/${ent.account_id}/conversations/${ent.chatwoot_conversation_id}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api_access_token': ent.api_key,
+        },
+        body: JSON.stringify({ content: content.trim() }),
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error('Erro Chatwoot send message:', resp.status, errText);
+      return res.status(502).json({ error: 'Falha ao enviar mensagem' });
+    }
+
+    const msgData = await resp.json();
+    const msg = msgData?.payload || msgData;
+
+    res.json({
+      id: msg.id,
+      content: msg.content,
+      message_type: msg.message_type ?? 1,
+      created_at: msg.created_at,
+    });
+  } catch (err) {
+    console.error('Erro ao enviar mensagem Chatwoot:', err.message);
+    res.status(500).json({ error: 'Erro ao enviar mensagem' });
+  }
+});
+
 // ==================== CHATWOOT SYNC ====================
 
 async function syncChatwootEntrega(entregaId, transportadoraId) {

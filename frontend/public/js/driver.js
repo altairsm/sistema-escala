@@ -53,14 +53,16 @@ function showLoading(show) {
 
 // ==================== SCREENS ====================
 function showScreen(id) {
-  ['screenHome', 'screenCarga'].forEach(s => {
+  ['screenHome', 'screenCarga', 'screenChat'].forEach(s => {
     document.getElementById(s).classList.toggle('hidden', s !== id);
   });
-  document.getElementById('btnBack').classList.toggle('hidden', id === 'screenHome');
-  document.getElementById('driverTitle').textContent = id === 'screenHome' ? 'Entregas' : `Carga ${document.getElementById('inputCarga').value || ''}`;
+  document.getElementById('btnBack').classList.toggle('hidden', id === 'screenHome' || id === 'screenChat');
+  const title = id === 'screenHome' ? 'Entregas' : (id === 'screenChat' ? 'WhatsApp' : `Carga ${document.getElementById('inputCarga').value || ''}`);
+  document.getElementById('driverTitle').textContent = title;
 }
 
 function goHome() {
+  if (currentChatId) { closeChat(); return; }
   showScreen('screenHome');
   entregas = [];
 }
@@ -134,7 +136,10 @@ function renderCarga() {
           ${e.cep ? `<span>📮 ${e.cep}</span>` : ''}
           ${e.telefone ? `<span>📞 ${e.telefone}</span>` : ''}
         </div>
-        ${chatwootAvailable ? `<button class="chatwoot-btn" onclick="openChatwoot(${e.id})">💬 WhatsApp</button>` : ''}
+        ${chatwootAvailable ? `<button class="whatsapp-btn" onclick="openChat(${e.id})">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-1.102-1.02-1.848-2.295-2.065-2.682-.217-.387-.023-.597.163-.791.167-.174.372-.454.559-.681.186-.227.248-.389.372-.648.124-.259.062-.484-.031-.679-.093-.195-.67-1.617-.92-2.215-.242-.58-.487-.48-.67-.49-.173-.01-.372-.012-.571-.012-.199 0-.523.074-.796.372-.273.298-1.043 1.02-1.043 2.488 0 1.468 1.069 2.886 1.217 3.085.149.199 2.101 3.207 5.09 4.401.71.284 1.264.454 1.696.581.712.21 1.36.18 1.872.109.571-.079 1.758-.718 2.006-1.413.248-.695.248-1.29.173-1.413-.074-.124-.272-.198-.57-.347zm-5.47 7.118h-.003a9.93 9.93 0 01-5.064-1.45l-.36-.214-3.775.992 1.008-3.682-.235-.374a9.865 9.865 0 01-1.517-5.26c.002-5.477 4.458-9.932 9.939-9.932 2.654 0 5.147 1.035 7.025 2.913 1.877 1.877 2.912 4.37 2.912 7.024 0 5.48-4.455 9.935-9.931 9.935z"/></svg>
+          Conversar
+        </button>` : ''}
         ${!done ? `
         <div class="actions">
           <button class="btn-success-driver" onclick="confirmarEntrega(${e.id})">✓ Recebida</button>
@@ -230,32 +235,128 @@ window.confirmarInsucesso = async function() {
   showToast('Inconsistência registrada');
 };
 
-// ==================== CHATWOOT INTEGRATION ====================
-window.openChatwoot = async function(entregaId) {
-  if (!chatwootConfig) return;
+// ==================== CHAT EMBUTIDO (WHATSAPP) ====================
+let currentChatId = null;
+let chatPollTimer = null;
+
+window.openChat = async function(entregaId) {
   const e = entregas.find(x => x.id === entregaId);
-  if (!e || !e.whatsapp_jid) return;
-  const { api_url, account_id, inbox_id, website_token } = chatwootConfig;
-  if (!api_url || !account_id || !inbox_id || !website_token) {
-    showToast('Chatwoot não configurado');
-    return;
-  }
+  if (!e) return;
 
-  if (e.chatwoot_conversation_id) {
-    const url = `${api_url}/app/accounts/${account_id}/conversations/${e.chatwoot_conversation_id}`;
-    window.open(url, '_blank');
-    return;
-  }
+  currentChatId = entregaId;
+  document.getElementById('chatHeaderName').textContent = e.cliente || 'WhatsApp';
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty">Carregando mensagens...</div>';
+  document.getElementById('chatInput').value = '';
+  document.getElementById('chatSendBtn').disabled = true;
+  showScreen('screenChat');
 
-  try {
-    const contact = await api(`/chatwoot/sync/${entregaId}`, { method: 'POST' });
-    if (contact && contact.conversation_url) {
-      window.open(contact.conversation_url, '_blank');
-    }
-  } catch (err) {
-    showToast('Erro ao abrir Chatwoot');
-  }
+  await fetchMessages();
+  startChatPoll();
+
+  document.getElementById('chatInput').disabled = false;
+  document.getElementById('chatInput').focus();
 };
+
+window.closeChat = function() {
+  stopChatPoll();
+  currentChatId = null;
+  showScreen('screenCarga');
+};
+
+async function fetchMessages() {
+  if (!currentChatId) return;
+  const msgs = await api(`/motorista/entregas/${currentChatId}/mensagens`);
+  const container = document.getElementById('chatMessages');
+  if (!msgs || msgs.length === 0) {
+    container.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Envie uma mensagem para iniciar a conversa.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  msgs.forEach(m => renderMessage(m));
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderMessage(msg) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + (msg.message_type === 1 ? 'from-motorista' : 'from-cliente');
+  div.dataset.msgId = msg.id;
+  const time = msg.created_at ? new Date(msg.created_at * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+  div.innerHTML = `<div>${escapeHtml(msg.content || '')}</div><div class="msg-time">${time}</div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+window.sendMessage = async function() {
+  const input = document.getElementById('chatInput');
+  const content = input.value.trim();
+  if (!content || !currentChatId) return;
+
+  input.value = '';
+  document.getElementById('chatSendBtn').disabled = true;
+
+  const msg = await api(`/motorista/entregas/${currentChatId}/mensagens`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+
+  if (msg && msg.id) {
+    renderMessage(msg);
+  } else {
+    showToast('Erro ao enviar mensagem');
+  }
+  input.focus();
+};
+
+function stopChatPoll() {
+  if (chatPollTimer) {
+    clearInterval(chatPollTimer);
+    chatPollTimer = null;
+  }
+}
+
+function startChatPoll() {
+  stopChatPoll();
+  chatPollTimer = setInterval(async () => {
+    if (currentChatId) {
+      const msgs = await api(`/motorista/entregas/${currentChatId}/mensagens`);
+      if (!msgs) return;
+      const container = document.getElementById('chatMessages');
+      const existingIds = new Set();
+      container.querySelectorAll('.chat-msg').forEach(el => {
+        const id = el.dataset.msgId;
+        if (id) existingIds.add(id);
+      });
+      msgs.forEach(m => {
+        if (!existingIds.has(String(m.id))) {
+          renderMessage(m);
+        }
+      });
+    }
+  }, 15000);
+}
+
+// Enable/disable send button based on input
+(function() {
+  const input = document.getElementById('chatInput');
+  const btn = document.getElementById('chatSendBtn');
+  if (input && btn) {
+    input.addEventListener('input', () => {
+      btn.disabled = !input.value.trim();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !btn.disabled) {
+        sendMessage();
+      }
+    });
+  }
+})();
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
 
 // ==================== CHATWOOT WIDGET SUPORTE ====================
 function initChatwootWidget() {
