@@ -18,12 +18,12 @@ function gerarWhatsAppJid(telefone) {
   return null;
 }
 
-async function enviarSmsNcr({ telefone, cliente, nf }) {
+async function enviarSmsNcr({ telefone, cliente, nf, nf_pv }) {
   if (!telefone) return;
   const digits = telefone.replace(/\D/g, '');
   if (digits.length < 10) return;
   const dia = String(new Date().getDate()).padStart(2, '0');
-  const msg = `80; ${dia}; TRANSCARNEIRO TRANSP; ${cliente}; ${cliente};          ; ${nf}`;
+  const msg = `80; ${dia}; TRANSCARNEIRO TRANSP; CASAS BAHIA; ${cliente}; ${nf_pv || ''}; ${nf}`;
   const body = {
     sendSmsRequest: {
       from: 'Transcarneiro Transportes',
@@ -228,7 +228,8 @@ export async function processarXml(xmlContent, transportadora_id) {
     ]);
 
     console.log(`[XML] NF ${chaveNf} inserida com sucesso`);
-    enviarSmsNcr({ telefone, cliente, nf });
+    const nfPv = data?.numeroPedido || data?.numero || null;
+    enviarSmsNcr({ telefone, cliente, nf, nf_pv: nfPv });
     return { inserted: true, updated: false, chaveNf, nf, fc: data?.numeroCarga || null };
   } catch (err) {
     console.error(`[XML] Erro ao salvar NF ${chaveNf}:`, err.message);
