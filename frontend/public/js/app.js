@@ -127,6 +127,8 @@ window.handleLogin = async function() {
     const user = result.user;
     if (result.primeiro_acesso) {
       renderPrimeiroAcesso();
+    } else if (user.funcao === 'motorista') {
+      window.location.href = 'driver.html';
     } else {
       render();
     }
@@ -2327,7 +2329,7 @@ window.novoCadastro = function(tipo) {
     body = `
       <div class="modal-row"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
       <div class="modal-row"><label>Email *</label><input id="f-email" type="email" placeholder="email@exemplo.com"></div>
-      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'}], { placeholder: 'Selecione a função' })}</div>`;
+      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'},{nome:'motorista'}], { placeholder: 'Selecione a função' })}</div>`;
   }
 
   showModal(`
@@ -2461,7 +2463,7 @@ window.editarCadastro = async function(tipo, id) {
     body = `
       <div class="modal-row"><label>Nome *</label><input id="f-nome" value="${item.nome}" placeholder="Nome completo"></div>
       <div class="modal-row"><label>Email</label><input id="f-email" value="${item.email}" placeholder="email@exemplo.com"></div>
-      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'}], { selected: item.funcao, placeholder: 'Selecione a função' })}</div>`;
+      <div class="modal-row"><label>Função *</label>${renderSelect('f-funcao', [{nome:'admin'},{nome:'operador'},{nome:'motorista'}], { selected: item.funcao, placeholder: 'Selecione a função' })}</div>`;
   }
 
   showModal(`

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Entregas - Via Varejo</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; display: flex; flex-direction: column; }
+    .driver-header { background: #1a73e8; color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,.15); }
+    .driver-header h1 { font-size: 18px; flex: 1; }
+    .driver-header .back-btn { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+    .driver-header .back-btn:hover { background: rgba(255,255,255,.15); }
+    .driver-header .user-info { font-size: 12px; opacity: .85; }
+    .driver-content { flex: 1; padding: 16px; max-width: 600px; margin: 0 auto; width: 100%; }
+    @media (min-width: 768px) { .driver-content { max-width: 900px; } }
+    .search-box { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 16px; text-align: center; }
+    .search-box h2 { font-size: 22px; color: #1a73e8; }
+    .search-box p { color: #666; font-size: 14px; }
+    .search-box input { width: 100%; max-width: 300px; padding: 14px 16px; font-size: 18px; border: 2px solid #ddd; border-radius: 10px; text-align: center; letter-spacing: 2px; }
+    .search-box input:focus { border-color: #1a73e8; outline: none; }
+    .search-box button { width: 100%; max-width: 300px; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; }
+    .btn-primary-driver { background: #1a73e8; color: #fff; }
+    .btn-primary-driver:active { background: #1557b0; }
+    .btn-success-driver { background: #34a853; color: #fff; }
+    .btn-success-driver:active { background: #2d8f47; }
+    .btn-danger-driver { background: #ea4335; color: #fff; }
+    .btn-danger-driver:active { background: #c5221f; }
+    .btn-outline { background: #fff; color: #1a73e8; border: 2px solid #1a73e8; }
+    .btn-outline:active { background: #e8f0fe; }
+    .carga-header { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); display: flex; justify-content: space-between; align-items: center; }
+    .carga-header h2 { font-size: 20px; color: #1a73e8; }
+    .carga-header .badge { background: #e8f0fe; color: #1a73e8; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+    .stats { display: flex; gap: 12px; margin-bottom: 16px; }
+    .stat-card { flex: 1; background: #fff; border-radius: 10px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .stat-card .num { font-size: 24px; font-weight: 700; }
+    .stat-card .label { font-size: 11px; color: #666; margin-top: 2px; }
+    .stat-card.pendente .num { color: #f9ab00; }
+    .stat-card.ok .num { color: #34a853; }
+    .stat-card.falha .num { color: #ea4335; }
+    .entrega-card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.1); transition: box-shadow .2s; }
+    .entrega-card:active { box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    .entrega-card .card-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px; }
+    .entrega-card .nf-num { font-size: 20px; font-weight: 700; color: #1a73e8; }
+    .entrega-card .cliente { font-size: 16px; font-weight: 600; }
+    .entrega-card .endereco { font-size: 13px; color: #666; margin: 4px 0 8px; }
+    .entrega-card .info-row { display: flex; gap: 16px; font-size: 12px; color: #555; margin-bottom: 8px; flex-wrap: wrap; }
+    .entrega-card .info-row span { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+    .entrega-card .actions { display: flex; gap: 8px; margin-top: 10px; }
+    .entrega-card .actions button { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; }
+    .entrega-card .actions button:disabled { opacity: .4; cursor: not-allowed; }
+    .entrega-card .status-badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; }
+    .status-badge.pendente { background: #fef7e0; color: #e37400; }
+    .status-badge.confirmada { background: #e6f4ea; color: #1e8e3e; }
+    .status-badge.insucesso { background: #fce8e6; color: #c5221f; }
+    .entrega-card .chatwoot-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; font-size: 13px; background: #e8f0fe; color: #1a73e8; border-radius: 20px; cursor: pointer; border: none; margin-top: 6px; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #999; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #323232; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,.3); max-width: 80vw; text-align: center; }
+    .hidden { display: none !important; }
+    .loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: #666; }
+    .loading::after { content: ''; width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #1a73e8; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .insucesso-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
+    .insucesso-modal { background: #fff; border-radius: 16px; padding: 20px; width: 90%; max-width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,.2); }
+    .insucesso-modal h3 { margin-bottom: 12px; }
+    .insucesso-modal select { width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; margin-bottom: 12px; }
+    .insucesso-modal .btn-row { display: flex; gap: 8px; }
+    .insucesso-modal .btn-row button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .logout-row { display: flex; justify-content: flex-end; padding: 4px 16px 16px; }
+    .logout-row button { background: none; border: none; color: #ea4335; font-size: 13px; cursor: pointer; padding: 8px; }
+  </style>
+</head>
+<body>
+  <div class="driver-header">
+    <button class="back-btn hidden" id="btnBack" onclick="goHome()">←</button>
+    <h1 id="driverTitle">Entregas</h1>
+    <div class="user-info" id="userInfo"></div>
+  </div>
+  <div class="driver-content" id="driverContent">
+    <div class="search-box" id="screenHome">
+      <h2>🚚</h2>
+      <p>Digite o número da carga para iniciar</p>
+      <input type="text" id="inputCarga" placeholder="Nº da Carga" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="go">
+      <button class="btn-primary-driver" onclick="loadCarga()">Buscar Carga</button>
+      <div class="logout-row"><button onclick="logout()">Sair</button></div>
+    </div>
+    <div id="screenCarga" class="hidden">
+      <div id="cargaContent"></div>
+    </div>
+  </div>
+  <div id="toastContainer"></div>
+  <script src="js/driver.js"></script>
+</body>
+</html>
