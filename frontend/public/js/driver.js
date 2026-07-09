@@ -248,6 +248,7 @@ window.openChat = async function(entregaId) {
   document.getElementById('chatMessages').innerHTML = '<div class="chat-empty">Carregando mensagens...</div>';
   document.getElementById('chatInput').value = '';
   document.getElementById('chatSendBtn').disabled = true;
+  setSupportBubbleVisible(false);
   showScreen('screenChat');
 
   await fetchMessages();
@@ -261,7 +262,26 @@ window.closeChat = function() {
   stopChatPoll();
   currentChatId = null;
   showScreen('screenCarga');
+  setSupportBubbleVisible(true);
 };
+
+function setSupportBubbleVisible(show) {
+  if (window.$chatwoot && typeof window.$chatwoot.toggleBubbleVisibility === 'function') {
+    window.$chatwoot.toggleBubbleVisibility(show);
+    return;
+  }
+  const id = 'chatwoot-bubble-style';
+  if (!show) {
+    if (!document.getElementById(id)) {
+      const s = document.createElement('style');
+      s.id = id;
+      s.textContent = '.woot--bubble-holder, .woot--widget-holder { display: none !important; }';
+      document.head.appendChild(s);
+    }
+  } else {
+    document.getElementById(id)?.remove();
+  }
+}
 
 async function fetchMessages() {
   if (!currentChatId) return;
