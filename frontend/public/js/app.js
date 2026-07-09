@@ -2777,7 +2777,7 @@ async function carregarChatwootStatus() {
   if (!el) return;
   const cfg = await apiGet('/me/chatwoot-config');
   el.innerHTML = cfg
-    ? `<div style="padding:12px 0">✅ URL: <strong>${cfg.api_url}</strong> | Account: <strong>${cfg.account_id || '—'}</strong> | Inbox: <strong>${cfg.inbox_id || '—'}</strong></div>`
+    ? `<div style="padding:12px 0">✅ URL: <strong>${cfg.api_url}</strong> | Account: <strong>${cfg.account_id || '—'}</strong> | Inbox: <strong>${cfg.inbox_id || '—'}</strong>${cfg.suporte_inbox_id ? ` | Suporte: <strong>${cfg.suporte_inbox_id}</strong>` : ''}</div>`
     : '<div style="padding:12px 0">⚠️ Chatwoot não configurado</div>';
 }
 
@@ -2789,10 +2789,17 @@ window.showChatwootConfig = async function() {
       <div class="modal-row"><label>API URL *</label><input id="cw-api-url" value="${cfg?.api_url || 'https://app.chatwoot.com'}" placeholder="https://app.chatwoot.com" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       <div class="modal-row" style="display:flex;gap:12px">
         <div style="flex:1"><label>Account ID</label><input type="number" id="cw-account-id" value="${cfg?.account_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
-        <div style="flex:1"><label>Inbox ID</label><input type="number" id="cw-inbox-id" value="${cfg?.inbox_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div style="flex:1"><label>Inbox ID (WhatsApp)</label><input type="number" id="cw-inbox-id" value="${cfg?.inbox_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       </div>
-      <div class="modal-row"><label>Website Token</label><input id="cw-website-token" value="${cfg?.website_token || ''}" placeholder="Token do widget" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row"><label>Website Token (WhatsApp)</label><input id="cw-website-token" value="${cfg?.website_token || ''}" placeholder="Token do widget WhatsApp" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       <div class="modal-row"><label>API Key</label><input type="password" id="cw-api-key" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      <div class="modal-row" style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:8px">
+        <div style="font-size:0.85rem;font-weight:600;margin-bottom:8px">🛟 Suporte Motorista (Website inbox)</div>
+      </div>
+      <div class="modal-row" style="display:flex;gap:12px">
+        <div style="flex:1"><label>Suporte Inbox ID</label><input type="number" id="cw-sup-inbox-id" value="${cfg?.suporte_inbox_id || ''}" placeholder="ID do inbox Website" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+        <div style="flex:1"><label>Suporte Website Token</label><input id="cw-sup-token" value="${cfg?.suporte_website_token || ''}" placeholder="Token do widget suporte" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
+      </div>
       <div class="modal-row"><label>N8N Webhook URL</label><input id="cw-n8n-url" value="${cfg?.n8n_webhook_url || ''}" placeholder="https://n8n.seudominio.com/webhook/..." style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal()">Cancelar</button>
@@ -2808,9 +2815,11 @@ window.salvarChatwootConfig = async function() {
   const inbox_id = parseInt(document.getElementById('cw-inbox-id')?.value) || null;
   const website_token = document.getElementById('cw-website-token')?.value.trim() || null;
   const api_key = document.getElementById('cw-api-key')?.value;
+  const suporte_inbox_id = parseInt(document.getElementById('cw-sup-inbox-id')?.value) || null;
+  const suporte_website_token = document.getElementById('cw-sup-token')?.value.trim() || null;
   const n8n_webhook_url = document.getElementById('cw-n8n-url')?.value.trim() || null;
   if (!api_url) { alert('API URL é obrigatória'); return; }
-  const result = await apiPut('/me/chatwoot-config', { api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url });
+  const result = await apiPut('/me/chatwoot-config', { api_url, account_id, inbox_id, website_token, api_key, suporte_inbox_id, suporte_website_token, n8n_webhook_url });
   if (result) {
     closeModal();
     carregarChatwootStatus();

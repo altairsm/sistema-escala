@@ -17,7 +17,7 @@ let chatwootConfig = null;
   if (!user || !getToken()) { window.location.href = 'index.html'; return; }
   if (user.funcao !== 'motorista') { window.location.href = 'index.html'; return; }
   document.getElementById('userInfo').textContent = user.nome || user.email;
-  loadChatwootConfig();
+  loadChatwootConfig().then(() => initChatwootWidget());
   document.getElementById('inputCarga').addEventListener('keydown', e => {
     if (e.key === 'Enter') loadCarga();
   });
@@ -255,4 +255,50 @@ window.openChatwoot = async function(entregaId) {
   } catch (err) {
     showToast('Erro ao abrir Chatwoot');
   }
+};
+
+// ==================== CHATWOOT WIDGET SUPORTE ====================
+function initChatwootWidget() {
+  if (!chatwootConfig || !chatwootConfig.suporte_website_token || !chatwootConfig.api_url) {
+    document.getElementById('supportFab').classList.remove('visible');
+    return;
+  }
+  if (window.$chatwoot) return;
+
+  const baseUrl = chatwootConfig.api_url.replace(/\/+$/, '');
+  const g = document.createElement('script');
+  g.src = baseUrl + '/packs/js/sdk.js';
+  g.async = true;
+  g.defer = true;
+  document.body.appendChild(g);
+  g.onload = function() {
+    window.chatwootSDK.run({
+      websiteToken: chatwootConfig.suporte_website_token,
+      baseUrl: baseUrl,
+    });
+    if (user) {
+      setTimeout(() => {
+        window.$chatwoot?.setUser?.(user.email, {
+          name: user.nome || user.email,
+          email: user.email,
+        });
+      }, 1000);
+    }
+  };
+}
+
+window.toggleSuporte = function() {
+  if (window.$chatwoot) {
+    window.$chatwoot.toggle();
+  } else {
+    showToast('Chat de suporte não disponível');
+  }
+};
+
+// Show/hide support FAB based on screen
+const origShowScreen = showScreen;
+showScreen = function(id) {
+  origShowScreen(id);
+  const fab = document.getElementById('supportFab');
+  if (fab) fab.classList.toggle('visible', id === 'screenCarga');
 };
