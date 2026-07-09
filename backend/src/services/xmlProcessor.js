@@ -9,6 +9,15 @@ const parser = new XMLParser({
   trimValues: true,
 });
 
+function gerarWhatsAppJid(telefone) {
+  if (!telefone) return null;
+  const digits = telefone.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return digits.slice(0, 2) + digits.slice(3) + '@s.whatsapp.net';
+  }
+  return null;
+}
+
 function extractData(infCpl, natOp) {
   const upper = (natOp || '').toUpperCase();
   let match;
@@ -97,6 +106,8 @@ export async function processarXml(xmlContent, transportadora_id) {
   const cliente = infNFe.dest?.xNome || '';
   const cidade = infNFe.dest?.enderDest?.xMun || '';
   const bairro = infNFe.dest?.enderDest?.xBairro || '';
+  const cep = infNFe.dest?.enderDest?.CEP || '';
+  const telefone = infNFe.dest?.enderDest?.fone || '';
   const infCpl = infNFe.infAdic?.infCpl || '';
 
   // Dados do emitente (remetente)
@@ -138,6 +149,7 @@ export async function processarXml(xmlContent, transportadora_id) {
         cnpj_cliente = $14, cnpj_emitente = $15, nome_emitente = $16,
         end_emitente = $17, cidade_emitente = $18, uf_emitente = $19,
         valor_nf = $20, peso_real = $21, qtd_volumes = $22, frete_tipo = $23,
+        cep = $24, telefone = $25, whatsapp_jid = $26,
         updated_at = NOW()
       WHERE chave_nf = $1
     `, [
@@ -151,6 +163,7 @@ export async function processarXml(xmlContent, transportadora_id) {
       cnpjCliente || null, cnpjEmitente || null, nomeEmitente || null,
       endEmitente || null, cidadeEmitente || null, ufEmitente || null,
       valorNf || 0, pesoReal || 0, qtdVolumes || 0, freteTipo,
+      cep || null, telefone || null, gerarWhatsAppJid(telefone),
     ]);
 
     if (rowCount > 0) {
@@ -162,9 +175,11 @@ export async function processarXml(xmlContent, transportadora_id) {
       INSERT INTO entregas (chave_nf, transportadora_id, nf, data_nf, fc, box,
         nf_pv, filial, cliente, cidade, bairro, micro_zona, remessa,
         cnpj_cliente, cnpj_emitente, nome_emitente, end_emitente,
-        cidade_emitente, uf_emitente, valor_nf, peso_real, qtd_volumes, frete_tipo)
+        cidade_emitente, uf_emitente, valor_nf, peso_real, qtd_volumes, frete_tipo,
+        cep, telefone, whatsapp_jid)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+        $24, $25, $26)
     `, [
       chaveNf, transportadora_id, nf, dataNf,
       data?.numeroCarga || null,
@@ -176,6 +191,7 @@ export async function processarXml(xmlContent, transportadora_id) {
       cnpjCliente || null, cnpjEmitente || null, nomeEmitente || null,
       endEmitente || null, cidadeEmitente || null, ufEmitente || null,
       valorNf || 0, pesoReal || 0, qtdVolumes || 0, freteTipo,
+      cep || null, telefone || null, gerarWhatsAppJid(telefone),
     ]);
 
     console.log(`[XML] NF ${chaveNf} inserida com sucesso`);
@@ -222,6 +238,8 @@ export function extrairDadosXml(xmlContent) {
   const cliente = infNFe.dest?.xNome || '';
   const cidade = infNFe.dest?.enderDest?.xMun || '';
   const bairro = infNFe.dest?.enderDest?.xBairro || '';
+  const cep = infNFe.dest?.enderDest?.CEP || '';
+  const telefone = infNFe.dest?.enderDest?.fone || '';
   const infCpl = infNFe.infAdic?.infCpl || '';
   const dataNf = dhEmi ? dhEmi.substring(0, 10) : null;
 
@@ -266,5 +284,8 @@ export function extrairDadosXml(xmlContent) {
     freteTipo,
     qtdVolumes: qtdVolumes || 0,
     pesoReal: pesoReal || 0,
+    cep: cep || null,
+    telefone: telefone || null,
+    whatsappJid: gerarWhatsAppJid(telefone),
   };
 }
