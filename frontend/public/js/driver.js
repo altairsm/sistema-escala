@@ -80,6 +80,11 @@ window.loadCarga = async function() {
   showLoading(false);
   if (!data) return;
   entregas = data;
+  entregas.sort((a, b) => {
+    if (a.has_recent_contact_message && !b.has_recent_contact_message) return -1;
+    if (!a.has_recent_contact_message && b.has_recent_contact_message) return 1;
+    return 0;
+  });
   if (entregas.length === 0) {
     document.getElementById('cargaContent').innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Nenhuma entrega encontrada para esta carga.</p></div>';
     return;
@@ -115,9 +120,9 @@ function renderCarga() {
     const chatwootAvailable = chatwootConfig && e.whatsapp_jid;
 
     html += `
-      <div class="entrega-card" data-id="${e.id}" data-status="${status}">
+      <div class="entrega-card${e.has_recent_contact_message ? ' recent-message' : ''}" data-id="${e.id}" data-status="${status}">
         <div class="card-header">
-          <span class="nf-num">NF ${e.nf || '—'}</span>
+          <span class="nf-num">NF ${e.nf || '—'}${e.has_recent_contact_message ? '<span class="recent-badge">💬 Nova mensagem</span>' : ''}</span>
           <span class="status-badge ${status}">${statusLabel}</span>
         </div>
         <div class="cliente">${e.cliente || '—'}</div>

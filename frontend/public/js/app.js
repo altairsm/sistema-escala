@@ -1007,7 +1007,7 @@ function renderProgramacao() {
         <tr>
           <td><strong>${c.carga}</strong></td>
           <td>${fmtDate(c.data_entrega)}</td>
-          <td>${c.qtd_entg || 0}</td>
+          <td>${c.qtd_real ?? c.qtd_entg ?? 0}</td>
           <td>${c.box || ''}</td>
           <td>
             ${renderSelect(`placa-${c.id}`, DATA.veiculos, { valueField: 'placa', selected: c.placa || '', disabled: c.confirma, placeholder: 'Placa', style: 'width:130px;padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;color:#1e293b', onchange: `updatePlaca(${c.id}, this.value)` })}
@@ -1092,7 +1092,7 @@ function renderEquipe() {
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:12px">
             <div><strong>${c.carga}</strong> <span class="badge badge-info">${c.placa || 'Sem placa'}</span></div>
             <div style="font-size:0.75rem;color:var(--gray);display:flex;gap:12px;flex-wrap:wrap">
-              <span>📦 Entregas: ${c.qtd_entg || 0}</span>
+              <span>📦 Entregas: ${c.qtd_real ?? c.qtd_entg ?? 0}</span>
               <span>📐 Cubagem: ${c.cub || '—'} m²</span>
               <span>📍 ${c.regiao_nome || ''} ${c.regiao || ''}</span>
             </div>

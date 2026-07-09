@@ -1112,12 +1112,16 @@ app.delete('/api/usuarios/:id', authMiddleware, transportadoraFilter, async (req
 
 app.get('/api/cargas', authMiddleware, transportadoraFilter, async (req, res) => {
   const { dataInicio, dataFim } = req.query;
-  let sql = 'SELECT * FROM cargas WHERE transportadora_id = $1';
+  let sql = `
+    SELECT c.*, COUNT(e.id) AS qtd_real
+    FROM cargas c
+    LEFT JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+    WHERE c.transportadora_id = $1`;
   const params = [req.user.transportadora_id];
   let idx = 2;
-  if (dataInicio) { sql += ` AND data_entrega >= $${idx}`; params.push(dataInicio); idx++; }
-  if (dataFim) { sql += ` AND data_entrega <= $${idx}`; params.push(dataFim); idx++; }
-  sql += ' ORDER BY data_entrega DESC';
+  if (dataInicio) { sql += ` AND c.data_entrega >= $${idx}`; params.push(dataInicio); idx++; }
+  if (dataFim) { sql += ` AND c.data_entrega <= $${idx}`; params.push(dataFim); idx++; }
+  sql += ` GROUP BY c.id ORDER BY c.data_entrega DESC`;
   try {
     const { rows } = await query(sql, params);
     res.json(rows);
@@ -2708,6 +2712,37 @@ app.get('/api/motorista/carga/:numero', authMiddleware, async (req, res) => {
       WHERE fc = $1 AND transportadora_id = $2
       ORDER BY nf
     `, [req.params.numero, req.user.transportadora_id]);
+
+    // Check Chatwoot for recent contact messages
+    if (rows.length > 0) {
+      const cc = await query(
+        'SELECT api_url, account_id, api_key FROM chatwoot_config WHERE transportadora_id = $1 AND ativo = true',
+        [req.user.transportadora_id]
+      );
+      const chatwoot = cc.rows[0];
+      if (chatwoot) {
+        const vinteQuatroH = Math.floor(Date.now() / 1000) - 86400;
+        await Promise.allSettled(rows.map(async (ent) => {
+          if (!ent.chatwoot_conversation_id) return;
+          try {
+            const resp = await fetch(
+              `${chatwoot.api_url}/api/v1/accounts/${chatwoot.account_id}/conversations/${ent.chatwoot_conversation_id}/messages`,
+              {
+                headers: { 'api_access_token': chatwoot.api_key },
+                signal: AbortSignal.timeout(5000),
+              }
+            );
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const recent = (data.payload || data.messages || []).some(m =>
+              m.message_type === 0 && m.created_at >= vinteQuatroH
+            );
+            ent.has_recent_contact_message = recent;
+          } catch {}
+        }));
+      }
+    }
+
     res.json(rows);
   } catch (err) {
     console.error('Erro ao buscar entregas da carga:', err.message);
