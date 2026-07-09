@@ -1148,7 +1148,12 @@ app.put('/api/cargas/:id/placa', authMiddleware, transportadoraFilter, async (re
       [placa, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
-    res.json(rows[0]);
+
+    const carga = rows[0];
+    const { rows: entregas } = await query('SELECT id FROM entregas WHERE fc = $1 AND transportadora_id = $2 AND chatwoot_contact_id IS NULL', [carga.carga, req.user.transportadora_id]);
+    await Promise.allSettled(entregas.map(e => syncChatwootEntrega(e.id, req.user.transportadora_id)));
+
+    res.json(carga);
   } catch (err) { res.status(500).json({ error: 'Erro ao atualizar placa' }); }
 });
 
@@ -1160,7 +1165,12 @@ app.put('/api/cargas/:id/confirmar', authMiddleware, transportadoraFilter, async
       [placa, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
-    res.json(rows[0]);
+
+    const carga = rows[0];
+    const { rows: entregas } = await query('SELECT id FROM entregas WHERE fc = $1 AND transportadora_id = $2 AND chatwoot_contact_id IS NULL', [carga.carga, req.user.transportadora_id]);
+    await Promise.allSettled(entregas.map(e => syncChatwootEntrega(e.id, req.user.transportadora_id)));
+
+    res.json(carga);
   } catch (err) { res.status(500).json({ error: 'Erro ao confirmar carga' }); }
 });
 
@@ -2856,6 +2866,101 @@ app.post('/api/motorista/entregas/:id/insucesso', authMiddleware, async (req, re
 
 // ==================== CHATWOOT SYNC ====================
 
+async function syncChatwootEntrega(entregaId, transportadoraId) {
+  const { rows } = await query(`
+    SELECT e.id, e.nf, e.cliente, e.whatsapp_jid, e.chatwoot_contact_id, e.chatwoot_conversation_id,
+           cc.api_url, cc.account_id, cc.inbox_id, cc.api_key
+    FROM entregas e
+    JOIN chatwoot_config cc ON cc.transportadora_id = e.transportadora_id AND cc.ativo = true
+    WHERE e.id = $1 AND e.transportadora_id = $2
+  `, [entregaId, transportadoraId]);
+
+  const ent = rows[0];
+  if (!ent) return null;
+  if (!ent.whatsapp_jid) return null;
+
+  if (ent.chatwoot_conversation_id) {
+    return {
+      conversation_url: `${ent.api_url}/app/accounts/${ent.account_id}/conversations/${ent.chatwoot_conversation_id}`,
+      contact_id: ent.chatwoot_contact_id,
+      conversation_id: ent.chatwoot_conversation_id,
+    };
+  }
+
+  let contactId = ent.chatwoot_contact_id;
+
+  if (!contactId) {
+    const contactResp = await fetch(`${ent.api_url}/api/v1/accounts/${ent.account_id}/contacts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api_access_token': ent.api_key,
+      },
+      body: JSON.stringify({
+        inbox_id: parseInt(ent.inbox_id),
+        name: ent.cliente || 'Cliente',
+        phone_number: ent.whatsapp_jid,
+      }),
+    });
+
+    if (!contactResp.ok) {
+      const errText = await contactResp.text();
+      console.error('Erro Chatwoot create contact:', contactResp.status, errText);
+      return null;
+    }
+
+    const contactData = await contactResp.json();
+    const contact = contactData?.payload?.contact || contactData?.contact || contactData;
+    contactId = contact.id;
+
+    if (!contactId) {
+      console.error('Resposta inesperada Chatwoot:', JSON.stringify(contactData));
+      return null;
+    }
+
+    await query('UPDATE entregas SET chatwoot_contact_id = $1 WHERE id = $2',
+      [contactId, entregaId]);
+  }
+
+  const convResp = await fetch(`${ent.api_url}/api/v1/accounts/${ent.account_id}/conversations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api_access_token': ent.api_key,
+    },
+    body: JSON.stringify({
+      source_id: contactId.toString(),
+      inbox_id: parseInt(ent.inbox_id),
+      additional_attributes: {
+        type: 'whatsapp',
+      },
+    }),
+  });
+
+  if (!convResp.ok) {
+    const errText = await convResp.text();
+    console.error('Erro Chatwoot create conversation:', convResp.status, errText);
+    return null;
+  }
+
+  const convData = await convResp.json();
+  const convId = convData?.id;
+
+  if (!convId) {
+    console.error('Resposta inesperada Chatwoot conv:', JSON.stringify(convData));
+    return null;
+  }
+
+  await query('UPDATE entregas SET chatwoot_conversation_id = $1 WHERE id = $2',
+    [convId, entregaId]);
+
+  return {
+    conversation_url: `${ent.api_url}/app/accounts/${ent.account_id}/conversations/${convId}`,
+    contact_id: contactId,
+    conversation_id: convId,
+  };
+}
+
 app.post('/api/chatwoot/sync/:entregaId', authMiddleware, async (req, res) => {
   try {
     const { rows } = await query(`
@@ -2867,94 +2972,13 @@ app.post('/api/chatwoot/sync/:entregaId', authMiddleware, async (req, res) => {
     `, [req.params.entregaId, req.user.transportadora_id]);
 
     const ent = rows[0];
-    if (!ent) return res.status(404).json({ error: 'Entrega não encontrada ou Chatwoot não configurado' });
+    if (!ent) return res.status(404).json({ error: 'Entrega não encontrada' });
     if (!ent.whatsapp_jid) return res.status(400).json({ error: 'WhatsApp JID não disponível' });
+    if (!ent.api_key) return res.status(400).json({ error: 'Chatwoot não configurado' });
 
-    // Se já tem conversa, retorna URL
-    if (ent.chatwoot_conversation_id) {
-      return res.json({
-        conversation_url: `${ent.api_url}/app/accounts/${ent.account_id}/conversations/${ent.chatwoot_conversation_id}`,
-        contact_id: ent.chatwoot_contact_id,
-        conversation_id: ent.chatwoot_conversation_id,
-      });
-    }
-
-    // 1. Buscar ou criar contato no Chatwoot
-    let contactId = ent.chatwoot_contact_id;
-
-    if (!contactId) {
-      const contactResp = await fetch(`${ent.api_url}/api/v1/accounts/${ent.account_id}/contacts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api_access_token': ent.api_key,
-        },
-        body: JSON.stringify({
-          inbox_id: parseInt(ent.inbox_id),
-          name: ent.cliente || 'Cliente',
-          phone_number: ent.whatsapp_jid,
-        }),
-      });
-
-      if (!contactResp.ok) {
-        const errText = await contactResp.text();
-        console.error('Erro Chatwoot create contact:', contactResp.status, errText);
-        return res.status(502).json({ error: 'Falha ao criar contato no Chatwoot' });
-      }
-
-      const contactData = await contactResp.json();
-      const contact = contactData?.payload?.contact || contactData?.contact || contactData;
-      contactId = contact.id;
-
-      if (!contactId) {
-        console.error('Resposta inesperada Chatwoot:', JSON.stringify(contactData));
-        return res.status(502).json({ error: 'Resposta inesperada do Chatwoot' });
-      }
-
-      // Salvar contact_id
-      await query('UPDATE entregas SET chatwoot_contact_id = $1 WHERE id = $2',
-        [contactId, req.params.entregaId]);
-    }
-
-    // 2. Criar conversa no inbox
-    const convResp = await fetch(`${ent.api_url}/api/v1/accounts/${ent.account_id}/conversations`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api_access_token': ent.api_key,
-      },
-      body: JSON.stringify({
-        source_id: contactId.toString(),
-        inbox_id: parseInt(ent.inbox_id),
-        additional_attributes: {
-          type: 'whatsapp',
-        },
-      }),
-    });
-
-    if (!convResp.ok) {
-      const errText = await convResp.text();
-      console.error('Erro Chatwoot create conversation:', convResp.status, errText);
-      return res.status(502).json({ error: 'Falha ao criar conversa no Chatwoot' });
-    }
-
-    const convData = await convResp.json();
-    const convId = convData?.id;
-
-    if (!convId) {
-      console.error('Resposta inesperada Chatwoot conv:', JSON.stringify(convData));
-      return res.status(502).json({ error: 'Resposta inesperada do Chatwoot' });
-    }
-
-    // Salvar conversation_id
-    await query('UPDATE entregas SET chatwoot_conversation_id = $1 WHERE id = $2',
-      [convId, req.params.entregaId]);
-
-    res.json({
-      conversation_url: `${ent.api_url}/app/accounts/${ent.account_id}/conversations/${convId}`,
-      contact_id: contactId,
-      conversation_id: convId,
-    });
+    const result = await syncChatwootEntrega(req.params.entregaId, req.user.transportadora_id);
+    if (!result) return res.status(502).json({ error: 'Falha ao sincronizar Chatwoot' });
+    res.json(result);
   } catch (err) {
     console.error('Erro no sync Chatwoot:', err.message);
     res.status(500).json({ error: 'Erro ao sincronizar Chatwoot' });

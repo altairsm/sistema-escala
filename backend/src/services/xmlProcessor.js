@@ -18,6 +18,39 @@ function gerarWhatsAppJid(telefone) {
   return null;
 }
 
+async function enviarSmsNcr({ telefone, cliente, nf }) {
+  if (!telefone) return;
+  const digits = telefone.replace(/\D/g, '');
+  if (digits.length < 10) return;
+  const dia = String(new Date().getDate()).padStart(2, '0');
+  const msg = `80; ${dia}; TRANSCARNEIRO TRANSP; ${cliente}; ${cliente};          ; ${nf}`;
+  const body = {
+    sendSmsRequest: {
+      from: 'Transcarneiro Transportes',
+      to: '55' + digits,
+      msg,
+      callbackOption: 'NONE',
+      id: nf,
+      aggregateId: '',
+      flashSms: false,
+    },
+    webhookUrl: 'https://webhook.sactudo.com.br/webhook/ncr',
+  };
+  try {
+    const resp = await fetch('https://webhook.sactudo.com.br/webhook/ncr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      console.error(`[SMS] Erro ao enviar SMS para ${telefone}: ${resp.status}`);
+    }
+  } catch (err) {
+    console.error(`[SMS] Falha ao enviar SMS para ${telefone}:`, err.message);
+  }
+}
+
 function extractData(infCpl, natOp) {
   const upper = (natOp || '').toUpperCase();
   let match;
@@ -195,6 +228,7 @@ export async function processarXml(xmlContent, transportadora_id) {
     ]);
 
     console.log(`[XML] NF ${chaveNf} inserida com sucesso`);
+    enviarSmsNcr({ telefone, cliente, nf });
     return { inserted: true, updated: false, chaveNf, nf, fc: data?.numeroCarga || null };
   } catch (err) {
     console.error(`[XML] Erro ao salvar NF ${chaveNf}:`, err.message);
