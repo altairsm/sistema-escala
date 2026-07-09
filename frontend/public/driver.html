@@ -72,11 +72,6 @@
     .insucesso-modal .btn-row button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .logout-row { display: flex; justify-content: flex-end; padding: 4px 16px 16px; }
     .logout-row button { background: none; border: none; color: #ea4335; font-size: 13px; cursor: pointer; padding: 8px; }
-    .support-fab { position: fixed; bottom: 80px; right: 16px; z-index: 300; display: none; }
-    .support-fab.visible { display: flex; }
-    .support-fab button { width: 56px; height: 56px; border-radius: 50%; border: none; background: #1a73e8; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; transition: transform .2s; }
-    .support-fab button:active { transform: scale(.92); }
-    .support-fab .badge-dot { position: absolute; top: 0; right: 0; width: 14px; height: 14px; border-radius: 50%; background: #ea4335; border: 2px solid #fff; }
   </style>
 </head>
 <body>
@@ -98,7 +93,5 @@
     </div>
   </div>
   <div id="toastContainer"></div>
-  <div class="support-fab" id="supportFab"><button onclick="toggleSuporte()" title="Falar com Suporte">💬</button></div>
-  <script src="js/driver.js"></script>
 </body>
 </html>

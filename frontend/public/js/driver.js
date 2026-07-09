@@ -260,7 +260,6 @@ window.openChatwoot = async function(entregaId) {
 // ==================== CHATWOOT WIDGET SUPORTE ====================
 function initChatwootWidget() {
   if (!chatwootConfig || !chatwootConfig.suporte_website_token) {
-    document.getElementById('supportFab')?.classList.remove('visible');
     return;
   }
   if (window.$chatwoot) return;
@@ -291,19 +290,3 @@ function initChatwootWidget() {
     }
   };
 }
-
-window.toggleSuporte = function() {
-  if (window.$chatwoot) {
-    window.$chatwoot.toggle();
-  } else {
-    showToast('Chat de suporte não disponível');
-  }
-};
-
-// Show/hide support FAB based on screen
-const origShowScreen = showScreen;
-showScreen = function(id) {
-  origShowScreen(id);
-  const fab = document.getElementById('supportFab');
-  if (fab) fab.classList.toggle('visible', id === 'screenCarga');
-};
