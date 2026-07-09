@@ -2791,7 +2791,6 @@ window.showChatwootConfig = async function() {
         <div style="flex:1"><label>Account ID</label><input type="number" id="cw-account-id" value="${cfg?.account_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
         <div style="flex:1"><label>Inbox ID (WhatsApp)</label><input type="number" id="cw-inbox-id" value="${cfg?.inbox_id || ''}" placeholder="1" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       </div>
-      <div class="modal-row"><label>Website Token (WhatsApp)</label><input id="cw-website-token" value="${cfg?.website_token || ''}" placeholder="Token do widget WhatsApp" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       <div class="modal-row"><label>API Key</label><input type="password" id="cw-api-key" placeholder="${cfg ? 'Deixe em branco para manter' : 'Obrigatório'}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e2e8f0;color:#1e293b"></div>
       <div class="modal-row" style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:8px">
         <div style="font-size:0.85rem;font-weight:600;margin-bottom:8px">🛟 Suporte Motorista (Website inbox)</div>
@@ -2813,13 +2812,12 @@ window.salvarChatwootConfig = async function() {
   const api_url = document.getElementById('cw-api-url')?.value.trim();
   const account_id = parseInt(document.getElementById('cw-account-id')?.value) || null;
   const inbox_id = parseInt(document.getElementById('cw-inbox-id')?.value) || null;
-  const website_token = document.getElementById('cw-website-token')?.value.trim() || null;
   const api_key = document.getElementById('cw-api-key')?.value;
   const suporte_inbox_id = parseInt(document.getElementById('cw-sup-inbox-id')?.value) || null;
   const suporte_website_token = document.getElementById('cw-sup-token')?.value.trim() || null;
   const n8n_webhook_url = document.getElementById('cw-n8n-url')?.value.trim() || null;
   if (!api_url) { alert('API URL é obrigatória'); return; }
-  const result = await apiPut('/me/chatwoot-config', { api_url, account_id, inbox_id, website_token, api_key, suporte_inbox_id, suporte_website_token, n8n_webhook_url });
+  const result = await apiPut('/me/chatwoot-config', { api_url, account_id, inbox_id, api_key, suporte_inbox_id, suporte_website_token, n8n_webhook_url });
   if (result) {
     closeModal();
     carregarChatwootStatus();

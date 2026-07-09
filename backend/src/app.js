@@ -1978,22 +1978,22 @@ app.get('/api/me/chatwoot-config', authMiddleware, transportadoraFilter, async (
 });
 
 app.put('/api/me/chatwoot-config', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url, suporte_inbox_id, suporte_website_token } = req.body;
+  const { api_url, account_id, inbox_id, api_key, n8n_webhook_url, suporte_inbox_id, suporte_website_token } = req.body;
   const tid = req.user.transportadora_id;
   try {
     const { rows: existing } = await query('SELECT id, api_key FROM chatwoot_config WHERE transportadora_id = $1', [tid]);
     const key = api_key && api_key !== '********' ? api_key : (existing.length > 0 ? existing[0].api_key : '');
     if (existing.length > 0) {
       await query(`
-        UPDATE chatwoot_config SET api_url=$1, account_id=$2, inbox_id=$3, website_token=$4, api_key=$5, n8n_webhook_url=$6,
-          suporte_inbox_id=$7, suporte_website_token=$8, updated_at=NOW()
-        WHERE transportadora_id=$9
-      `, [api_url, account_id, inbox_id, website_token, key, n8n_webhook_url, suporte_inbox_id, suporte_website_token, tid]);
+        UPDATE chatwoot_config SET api_url=$1, account_id=$2, inbox_id=$3, api_key=$4, n8n_webhook_url=$5,
+          suporte_inbox_id=$6, suporte_website_token=$7, updated_at=NOW()
+        WHERE transportadora_id=$8
+      `, [api_url, account_id, inbox_id, key, n8n_webhook_url, suporte_inbox_id, suporte_website_token, tid]);
     } else {
       await query(`
-        INSERT INTO chatwoot_config (transportadora_id, api_url, account_id, inbox_id, website_token, api_key, n8n_webhook_url, suporte_inbox_id, suporte_website_token)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [tid, api_url, account_id, inbox_id, website_token, key, n8n_webhook_url, suporte_inbox_id, suporte_website_token]);
+        INSERT INTO chatwoot_config (transportadora_id, api_url, account_id, inbox_id, api_key, n8n_webhook_url, suporte_inbox_id, suporte_website_token)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [tid, api_url, account_id, inbox_id, key, n8n_webhook_url, suporte_inbox_id, suporte_website_token]);
     }
     res.json({ message: 'Configuração Chatwoot salva' });
   } catch (err) {
