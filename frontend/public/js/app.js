@@ -104,7 +104,7 @@ function renderLoginPage(root) {
 
   // Check if installed
   apiGet('/status').then(s => {
-    if (s && !s.instalado) {
+    if (s && typeof s === 'object' && !s.instalado) {
       document.getElementById('install-link-area').innerHTML =
         '<a onclick="checkInstall()">Primeiro acesso? Instalar sistema</a>';
     }
@@ -1044,7 +1044,7 @@ window.desconfirmarCarga = async function(id) {
   const result = await apiPut(`/cargas/${id}/desconfirmar`);
   if (result) {
     const c = DATA.cargas.find(x => x.id === id);
-    if (c) { c.confirma = false; c.confirma_equipe = false; c.motorista = null; c.ajudante_01 = null; c.ajudante_02 = null; }
+    if (c) { c.confirma = false; c.confirma_equipe = false; c.motorista = null; c.motorista_id = null; c.ajudante_01 = null; c.ajudante_02 = null; }
     renderContent(); renderTabs();
   } else alert('Erro ao desconfirmar');
 };
@@ -1122,17 +1122,25 @@ function renderEquipe() {
 }
 
 window.confirmarEquipe = async function(id) {
-  const mot = document.getElementById(`mot-${id}`)?.value;
-  if (!mot) { alert('Informe o motorista'); return; }
+  const motNome = document.getElementById(`mot-${id}`)?.value;
+  if (!motNome) { alert('Informe o motorista'); return; }
+  const mot = DATA.funcionarios?.find(f => f.funcao === 'motorista' && f.nome === motNome);
   const payload = {
-    motorista: mot,
+    motorista_id: mot?.id >= 0 ? mot.id : null,
+    motorista_nome: motNome,
     ajudante_01: document.getElementById(`aj1-${id}`)?.value || null,
     ajudante_02: document.getElementById(`aj2-${id}`)?.value || null
   };
   const result = await apiPut(`/cargas/${id}/equipe`, payload);
   if (result) {
     const c = DATA.cargas.find(x => x.id === id);
-    if (c) Object.assign(c, payload, { confirma_equipe: true });
+    if (c) {
+      c.motorista_id = payload.motorista_id;
+      c.motorista = motNome;
+      c.confirma_equipe = true;
+      c.ajudante_01 = payload.ajudante_01;
+      c.ajudante_02 = payload.ajudante_02;
+    }
     renderContent(); renderTabs();
   } else alert('Erro ao confirmar equipe');
 };
@@ -1141,7 +1149,7 @@ window.editarEquipe = async function(id) {
   const result = await apiPut(`/cargas/${id}/desfazer-equipe`);
   if (result) {
     const c = DATA.cargas.find(x => x.id === id);
-    if (c) { c.confirma_equipe = false; c.motorista = null; c.ajudante_01 = null; c.ajudante_02 = null; }
+    if (c) { c.confirma_equipe = false; c.motorista = null; c.motorista_id = null; c.ajudante_01 = null; c.ajudante_02 = null; }
     renderContent(); renderTabs();
   } else alert('Erro ao editar');
 };

@@ -1178,7 +1178,7 @@ app.put('/api/cargas/:id/desconfirmar', authMiddleware, transportadoraFilter, as
   try {
     const { rows } = await query(
       `UPDATE cargas SET confirma = false, confirma_equipe = false,
-       motorista = null, ajudante_01 = null, ajudante_02 = null, updated_at = NOW()
+       motorista = null, motorista_id = null, ajudante_01 = null, ajudante_02 = null, updated_at = NOW()
        WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
       [req.params.id, req.user.transportadora_id]
     );
@@ -1188,13 +1188,17 @@ app.put('/api/cargas/:id/desconfirmar', authMiddleware, transportadoraFilter, as
 });
 
 app.put('/api/cargas/:id/equipe', authMiddleware, transportadoraFilter, async (req, res) => {
-  const { motorista, ajudante_01, ajudante_02 } = req.body;
+  const { motorista_id, motorista_nome, ajudante_01, ajudante_02 } = req.body;
   try {
+    let motoristaNome = motorista_nome || null;
+    if (motorista_id > 0) {
+      motoristaNome = (await query('SELECT nome FROM usuarios WHERE id = $1', [motorista_id])).rows[0]?.nome || motoristaNome;
+    }
     const { rows } = await query(
-      `UPDATE cargas SET motorista = $1, ajudante_01 = $2, ajudante_02 = $3,
+      `UPDATE cargas SET motorista_id = $1, motorista = $2, ajudante_01 = $3, ajudante_02 = $4,
        confirma_equipe = true, updated_at = NOW()
-       WHERE id = $4 AND transportadora_id = $5 RETURNING *`,
-      [motorista, ajudante_01 || null, ajudante_02 || null, req.params.id, req.user.transportadora_id]
+       WHERE id = $5 AND transportadora_id = $6 RETURNING *`,
+      [motorista_id > 0 ? motorista_id : null, motoristaNome, ajudante_01 || null, ajudante_02 || null, req.params.id, req.user.transportadora_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
     res.json(rows[0]);
@@ -1204,7 +1208,7 @@ app.put('/api/cargas/:id/equipe', authMiddleware, transportadoraFilter, async (r
 app.put('/api/cargas/:id/desfazer-equipe', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      `UPDATE cargas SET confirma_equipe = false, motorista = null,
+      `UPDATE cargas SET confirma_equipe = false, motorista = null, motorista_id = null,
        ajudante_01 = null, ajudante_02 = null, updated_at = NOW()
        WHERE id = $1 AND transportadora_id = $2 RETURNING *`,
       [req.params.id, req.user.transportadora_id]
@@ -1585,12 +1589,13 @@ app.get('/api/indicadores/motivos', authMiddleware, transportadoraFilter, async 
 app.get('/api/indicadores/top-motoristas', authMiddleware, transportadoraFilter, async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT c.motorista, c.placa, COUNT(e.id) as entregas,
+      `SELECT COALESCE(u.nome, c.motorista) as motorista, c.placa, COUNT(e.id) as entregas,
               SUM(CASE WHEN e.confirma_entrega = true THEN 1 ELSE 0 END) as sucesso
        FROM cargas c
        JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+       LEFT JOIN usuarios u ON u.id = c.motorista_id
        WHERE c.transportadora_id = $1 AND c.motorista IS NOT NULL
-       GROUP BY c.motorista, c.placa
+       GROUP BY COALESCE(u.nome, c.motorista), c.placa
        ORDER BY entregas DESC LIMIT 10`,
       [req.user.transportadora_id]
     );
@@ -1702,12 +1707,14 @@ app.get('/api/relatorios/:tipo', authMiddleware, transportadoraFilter, async (re
         sql += ' ORDER BY e.data_nf DESC';
         break;
       case 'motoristas':
-        sql = `SELECT c.motorista, c.placa, COUNT(e.id) as entregas,
+        sql = `SELECT COALESCE(u.nome, c.motorista) as motorista, c.placa, COUNT(e.id) as entregas,
                       SUM(CASE WHEN e.confirma_entrega = true THEN 1 ELSE 0 END) as sucesso,
                       SUM(CASE WHEN e.confirma_entrega = false THEN 1 ELSE 0 END) as insucesso
-               FROM cargas c JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+               FROM cargas c
+               JOIN entregas e ON e.fc = c.carga AND e.transportadora_id = c.transportadora_id
+               LEFT JOIN usuarios u ON u.id = c.motorista_id
                WHERE c.transportadora_id = $1 AND c.motorista IS NOT NULL
-               GROUP BY c.motorista, c.placa ORDER BY entregas DESC`;
+               GROUP BY COALESCE(u.nome, c.motorista), c.placa ORDER BY entregas DESC`;
         break;
       case 'reentregas':
         sql = `SELECT e.nf, e.fc as carga, e.cliente, e.bairro, e.motivo_insucesso,
@@ -1760,7 +1767,15 @@ app.get('/api/funcionarios', authMiddleware, transportadoraFilter, async (req, r
   try {
     const tid = req.user.transportadora_id;
     const [mot, aju] = await Promise.all([
-      query(`SELECT id, nome, 'motorista' as funcao FROM motoristas WHERE transportadora_id = $1 AND ativo = true ORDER BY nome`, [tid]),
+      query(`
+        SELECT u.id, u.nome, 'motorista' as funcao FROM usuarios u
+        WHERE u.transportadora_id = $1 AND u.funcao = 'motorista' AND u.ativo = true
+        UNION
+        SELECT -m.id as id, m.nome, 'motorista' as funcao FROM motoristas m
+        WHERE m.transportadora_id = $1 AND m.ativo = true
+          AND NOT EXISTS (SELECT 1 FROM usuarios u2 WHERE u2.transportadora_id = m.transportadora_id AND u2.nome = m.nome AND u2.funcao = 'motorista')
+        ORDER BY nome
+      `, [tid]),
       query(`SELECT id, nome, 'ajudante' as funcao FROM ajudantes WHERE transportadora_id = $1 AND ativo = true ORDER BY nome`, [tid])
     ]);
     res.json([...mot.rows, ...aju.rows]);
@@ -2770,6 +2785,155 @@ app.put('/api/motorista/chatwoot-config', authMiddleware, async (req, res) => {
 
 // ==================== ROTAS DO MOTORISTA (APP MOBILE) ====================
 
+// Listar cargas associadas ao motorista logado (com contagens)
+app.get('/api/motorista/minhas-cargas', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT c.id, c.carga, c.status, c.data_entrega,
+        (SELECT COUNT(*)::int FROM entregas e WHERE e.fc = c.carga AND e.transportadora_id = c.transportadora_id AND e.confirma_entrega IS NULL) AS pendentes,
+        (SELECT COUNT(*)::int FROM entregas e WHERE e.fc = c.carga AND e.transportadora_id = c.transportadora_id AND e.confirma_entrega = false) AS insucesso
+      FROM cargas c
+      WHERE c.motorista_id = $1 AND c.transportadora_id = $2
+      ORDER BY c.carga
+    `, [req.user.id, req.user.transportadora_id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar minhas cargas:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar cargas' });
+  }
+});
+
+// Associar uma carga ao motorista (com verificação de conflito)
+app.post('/api/motorista/carga/associar', authMiddleware, async (req, res) => {
+  const { carga: numero, force } = req.body;
+  if (!numero || typeof numero !== 'string') {
+    return res.status(400).json({ error: 'Informe o número da carga' });
+  }
+
+  try {
+    const { rows: cargas } = await query(
+      'SELECT c.id, c.carga, c.motorista, c.motorista_id, c.status, u.nome as motorista_nome FROM cargas c LEFT JOIN usuarios u ON u.id = c.motorista_id WHERE c.carga = $1 AND c.transportadora_id = $2',
+      [numero, req.user.transportadora_id]
+    );
+
+    if (cargas.length === 0) {
+      return res.status(404).json({ error: 'Carga não encontrada' });
+    }
+
+    const c = cargas[0];
+
+    if (c.status === 6) {
+      return res.status(400).json({ error: 'Carga já concluída, não pode ser associada' });
+    }
+
+    const currentName = c.motorista_nome || c.motorista;
+
+    // Verifica conflito: carga já associada a outro motorista
+    if (c.motorista_id && c.motorista_id !== req.user.id && !force) {
+      return res.json({
+        status: 'conflict',
+        carga: c.carga,
+        current_motorista: currentName,
+      });
+    }
+
+    // Associa (ou reassina)
+    await query(
+      `UPDATE cargas SET motorista_id = $1, motorista = $2, confirma_equipe = true, updated_at = NOW()
+       WHERE id = $3`,
+      [req.user.id, req.user.nome, c.id]
+    );
+
+    const { rows: pendentes } = await query(
+      `SELECT COUNT(*)::int AS total FROM entregas
+       WHERE fc = $1 AND transportadora_id = $2
+       AND (confirma_entrega IS NULL OR confirma_entrega = false)`,
+      [numero, req.user.transportadora_id]
+    );
+
+    res.json({
+      status: 'ok',
+      carga: { id: c.id, carga: c.carga },
+      pendentes: pendentes[0].total,
+    });
+  } catch (err) {
+    console.error('Erro ao associar carga:', err.message);
+    res.status(500).json({ error: 'Erro ao associar carga' });
+  }
+});
+
+// Remover associação de uma carga
+app.delete('/api/motorista/carga/:numero', authMiddleware, async (req, res) => {
+  try {
+    const { rowCount } = await query(
+      `UPDATE cargas SET motorista = NULL, motorista_id = NULL, confirma_equipe = false, updated_at = NOW()
+       WHERE carga = $1 AND transportadora_id = $2 AND motorista_id = $3`,
+      [req.params.numero, req.user.transportadora_id, req.user.id]
+    );
+
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Carga não encontrada ou não associada a você' });
+    }
+
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('Erro ao remover carga:', err.message);
+    res.status(500).json({ error: 'Erro ao remover carga' });
+  }
+});
+
+// Listar entregas pendentes/insucesso de todas as cargas associadas
+app.get('/api/motorista/minhas-entregas', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT e.id, e.nf, e.fc, e.cliente, e.bairro, e.cidade, e.cep, e.telefone, e.whatsapp_jid,
+             e.valor_nf, e.qtd_volumes, e.peso_real, e.confirma_entrega, e.motivo_insucesso,
+             e.chave_nf, e.cnpj_cliente, e.latitude, e.longitude,
+             e.chatwoot_contact_id, e.chatwoot_conversation_id
+      FROM entregas e
+      JOIN cargas c ON c.carga = e.fc AND c.transportadora_id = e.transportadora_id
+      WHERE c.motorista_id = $1 AND e.transportadora_id = $2
+        AND (e.confirma_entrega IS NULL OR e.confirma_entrega = false)
+      ORDER BY e.fc, e.cliente
+    `, [req.user.id, req.user.transportadora_id]);
+
+    // Enriquecer com flag de mensagem recente do Chatwoot
+    if (rows.length > 0) {
+      const cc = await query(
+        'SELECT api_url, account_id, api_key FROM chatwoot_config WHERE transportadora_id = $1 AND ativo = true',
+        [req.user.transportadora_id]
+      );
+      const chatwoot = cc.rows[0];
+      if (chatwoot) {
+        const vinteQuatroH = Math.floor(Date.now() / 1000) - 86400;
+        await Promise.allSettled(rows.map(async (ent) => {
+          if (!ent.chatwoot_conversation_id) return;
+          try {
+            const resp = await fetch(
+              `${chatwoot.api_url}/api/v1/accounts/${chatwoot.account_id}/conversations/${ent.chatwoot_conversation_id}/messages`,
+              {
+                headers: { 'api_access_token': chatwoot.api_key },
+                signal: AbortSignal.timeout(5000),
+              }
+            );
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const recent = (data.payload || data.messages || []).some(m =>
+              m.message_type === 0 && m.created_at >= vinteQuatroH
+            );
+            ent.has_recent_contact_message = recent;
+          } catch {}
+        }));
+      }
+    }
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar minhas entregas:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar entregas' });
+  }
+});
+
 // Listar entregas de uma carga específica (para o motorista)
 app.get('/api/motorista/carga/:numero', authMiddleware, async (req, res) => {
   try {
@@ -2826,14 +2990,21 @@ app.put('/api/motorista/entregas/:id/confirmar', authMiddleware, async (req, res
   try {
     const { rows } = await query(`
       UPDATE entregas SET confirma_entrega = true,
-        latitude = COALESCE($1, latitude),
-        longitude = COALESCE($2, longitude),
+        motorista_id = $1,
+        latitude = COALESCE($2, latitude),
+        longitude = COALESCE($3, longitude),
         updated_at = NOW()
-      WHERE id = $3 AND transportadora_id = $4
+      WHERE id = $4 AND transportadora_id = $5
         AND confirma_entrega IS NULL
-      RETURNING id, nf, fc, confirma_entrega
-    `, [latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada ou já finalizada' });
+      RETURNING id, nf, fc, confirma_entrega, motorista_id
+    `, [req.user.id, latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
+    if (rows.length === 0) {
+      const existing = await query('SELECT confirma_entrega FROM entregas WHERE id = $1 AND transportadora_id = $2', [req.params.id, req.user.transportadora_id]);
+      if (existing.rows.length > 0 && existing.rows[0].confirma_entrega !== null) {
+        return res.status(409).json({ error: 'Esta entrega já foi processada por outro motorista' });
+      }
+      return res.status(404).json({ error: 'Entrega não encontrada' });
+    }
     res.json(rows[0]);
   } catch (err) {
     console.error('Erro ao confirmar entrega:', err.message);
@@ -2848,19 +3019,40 @@ app.post('/api/motorista/entregas/:id/insucesso', authMiddleware, async (req, re
   try {
     const { rows } = await query(`
       UPDATE entregas SET confirma_entrega = false,
-        motivo_insucesso = $1,
-        latitude = COALESCE($2, latitude),
-        longitude = COALESCE($3, longitude),
+        motorista_id = $1,
+        motivo_insucesso = $2,
+        latitude = COALESCE($3, latitude),
+        longitude = COALESCE($4, longitude),
         updated_at = NOW()
-      WHERE id = $4 AND transportadora_id = $5
+      WHERE id = $5 AND transportadora_id = $6
         AND confirma_entrega IS NULL
-      RETURNING id, nf, fc, confirma_entrega, motivo_insucesso
-    `, [motivo, latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada ou já finalizada' });
+      RETURNING id, nf, fc, confirma_entrega, motivo_insucesso, motorista_id
+    `, [req.user.id, motivo, latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
+    if (rows.length === 0) {
+      const existing = await query('SELECT confirma_entrega FROM entregas WHERE id = $1 AND transportadora_id = $2', [req.params.id, req.user.transportadora_id]);
+      if (existing.rows.length > 0 && existing.rows[0].confirma_entrega !== null) {
+        return res.status(409).json({ error: 'Esta entrega já foi processada por outro motorista' });
+      }
+      return res.status(404).json({ error: 'Entrega não encontrada' });
+    }
     res.json(rows[0]);
   } catch (err) {
     console.error('Erro ao reportar insucesso:', err.message);
     res.status(500).json({ error: 'Erro ao reportar insucesso' });
+  }
+});
+
+// Verificar status de uma entrega (check pré-confirmação)
+app.get('/api/motorista/entrega/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, confirma_entrega FROM entregas WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Entrega não encontrada' });
+    res.json({ processada: rows[0].confirma_entrega !== null });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao verificar status' });
   }
 });
 

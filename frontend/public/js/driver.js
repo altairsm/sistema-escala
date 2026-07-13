@@ -18,8 +18,9 @@ let chatwootConfig = null;
   if (user.funcao !== 'motorista') { window.location.href = 'index.html'; return; }
   document.getElementById('userInfo').textContent = user.nome || user.email;
   loadChatwootConfig().then(() => initChatwootWidget());
-  document.getElementById('inputCarga').addEventListener('keydown', e => {
-    if (e.key === 'Enter') loadCarga();
+  loadMinhasCargas();
+  document.getElementById('inputNovaCarga').addEventListener('keydown', e => {
+    if (e.key === 'Enter') adicionarCarga();
   });
 })();
 
@@ -56,15 +57,19 @@ function showScreen(id) {
   ['screenHome', 'screenCarga', 'screenChat'].forEach(s => {
     document.getElementById(s).classList.toggle('hidden', s !== id);
   });
-  document.getElementById('btnBack').classList.toggle('hidden', id === 'screenHome' || id === 'screenChat');
-  const title = id === 'screenHome' ? 'Entregas' : (id === 'screenChat' ? 'WhatsApp' : `Carga ${document.getElementById('inputCarga').value || ''}`);
+  document.getElementById('btnBack').classList.toggle('hidden', id !== 'screenCarga');
+  document.querySelector('.driver-header').classList.toggle('hidden', id === 'screenChat');
+  const title = id === 'screenHome' ? 'Entregas' : (id === 'screenChat' ? 'WhatsApp' : 'Entregas');
   document.getElementById('driverTitle').textContent = title;
+  if (id !== 'screenCarga') pararPollEntregas();
 }
 
 function goHome() {
   if (currentChatId) { closeChat(); return; }
+  pararPollEntregas();
   showScreen('screenHome');
   entregas = [];
+  loadMinhasCargas();
 }
 
 function logout() {
@@ -72,15 +77,107 @@ function logout() {
   window.location.href = 'index.html';
 }
 
-// ==================== LOAD CARGA ====================
-window.loadCarga = async function() {
-  const num = document.getElementById('inputCarga').value.trim();
+// ==================== MINHAS CARGAS ====================
+let minhasCargas = [];
+
+async function loadMinhasCargas() {
+  showScreen('screenHome');
+  const data = await api('/motorista/minhas-cargas');
+  if (!data || !Array.isArray(data)) { showToast('Erro ao carregar cargas'); return; }
+  minhasCargas = data;
+  renderHome();
+}
+
+const STATUS_LABELS = {
+  1: { label: 'Em programação', color: '#1a73e8' },
+  2: { label: 'Com equipe', color: '#e37400' },
+  3: { label: 'Em rota', color: '#34a853' },
+  4: { label: 'Parcial', color: '#f9ab00' },
+  5: { label: 'Parcial', color: '#f9ab00' },
+  6: { label: 'Concluída', color: '#999' },
+};
+
+function renderHome() {
+  const list = document.getElementById('cargasList');
+  if (minhasCargas.length === 0) {
+    list.innerHTML = '<div class="empty-cargas">Nenhuma carga associada ainda.<br>Adicione uma carga abaixo.</div>';
+    return;
+  }
+  list.innerHTML = minhasCargas.map(c => {
+    const st = STATUS_LABELS[c.status] || STATUS_LABELS[4];
+    return `
+    <div class="carga-item">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:12px;height:12px;border-radius:50%;background:${st.color};flex-shrink:0"></span>
+        <div>
+          <div class="carga-num">${c.carga}</div>
+          <div style="font-size:11px;color:#888">${st.label} · ${c.pendentes} pendente${c.pendentes !== 1 ? 's' : ''}${c.insucesso > 0 ? `, ${c.insucesso} insucesso${c.insucesso !== 1 ? 's' : ''}` : ''}</div>
+        </div>
+      </div>
+      ${c.status !== 6 ? `<button class="remove-btn" onclick="removerCarga('${c.carga}')" title="Remover carga">×</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+window.adicionarCarga = async function() {
+  const num = document.getElementById('inputNovaCarga').value.trim();
   if (!num) { showToast('Digite o número da carga'); return; }
+  document.getElementById('inputNovaCarga').value = '';
+  document.getElementById('inputNovaCarga').disabled = true;
+
+  const data = await api('/motorista/carga/associar', {
+    method: 'POST',
+    body: JSON.stringify({ carga: num }),
+  });
+
+  document.getElementById('inputNovaCarga').disabled = false;
+  document.getElementById('inputNovaCarga').focus();
+
+  if (!data) return;
+
+  if (data.error) {
+    showToast(data.error);
+    return;
+  }
+
+  if (data.status === 'conflict') {
+    mostrarModalConflito(data.carga, data.current_motorista, async () => {
+      const forceData = await api('/motorista/carga/associar', {
+        method: 'POST',
+        body: JSON.stringify({ carga: num, force: true }),
+      });
+      if (forceData && forceData.status === 'ok') {
+        showToast(`Carga ${num} associada com sucesso!`);
+        await loadMinhasCargas();
+      }
+    });
+    return;
+  }
+
+  if (data.status === 'ok') {
+    showToast(`Carga ${num} associada com sucesso!`);
+    await loadMinhasCargas();
+  }
+};
+
+window.removerCarga = async function(numero) {
+  const data = await api(`/motorista/carga/${encodeURIComponent(numero)}`, { method: 'DELETE' });
+  if (!data) return;
+  showToast(`Carga ${numero} removida`);
+  await loadMinhasCargas();
+};
+
+window.verEntregas = async function() {
+  if (minhasCargas.length === 0) {
+    showToast('Adicione pelo menos uma carga primeiro');
+    return;
+  }
+  document.getElementById('inputNovaCarga').disabled = true;
   showScreen('screenCarga');
   showLoading(true);
-  const data = await api(`/motorista/carga/${encodeURIComponent(num)}`);
-  showLoading(false);
-  if (!data) return;
+  const data = await api('/motorista/minhas-entregas');
+  document.getElementById('inputNovaCarga').disabled = false;
+  if (!data) { showScreen('screenHome'); return; }
   entregas = data;
   entregas.sort((a, b) => {
     if (a.has_recent_contact_message && !b.has_recent_contact_message) return -1;
@@ -88,35 +185,88 @@ window.loadCarga = async function() {
     return 0;
   });
   if (entregas.length === 0) {
-    document.getElementById('cargaContent').innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Nenhuma entrega encontrada para esta carga.</p></div>';
+    document.getElementById('cargaContent').innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Todas as entregas foram finalizadas!</p></div>';
     return;
   }
   renderCarga();
+  iniciarPollEntregas();
 };
+
+async function recarregarEntregas() {
+  const data = await api('/motorista/minhas-entregas');
+  if (!data || !Array.isArray(data)) return;
+  data.sort((a, b) => {
+    if (a.has_recent_contact_message && !b.has_recent_contact_message) return -1;
+    if (!a.has_recent_contact_message && b.has_recent_contact_message) return 1;
+    return 0;
+  });
+  entregas = data;
+  const container = document.getElementById('cargaContent');
+  if (entregas.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Todas as entregas foram finalizadas!</p></div>';
+    return;
+  }
+  renderCarga();
+}
+
+let pollEntregasTimer = null;
+
+function iniciarPollEntregas() {
+  pararPollEntregas();
+  pollEntregasTimer = setInterval(recarregarEntregas, 15000);
+}
+
+function pararPollEntregas() {
+  if (pollEntregasTimer) {
+    clearInterval(pollEntregasTimer);
+    pollEntregasTimer = null;
+  }
+}
+
+function mostrarModalConflito(carga, motorista, onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.className = 'insucesso-modal-overlay';
+  overlay.id = 'conflitoOverlay';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="insucesso-modal">
+      <h3>⚠️ Carga já associada</h3>
+      <p style="font-size:14px;color:#555;margin:12px 0;line-height:1.5">
+        A carga <strong>${carga}</strong> já está associada a <strong>${motorista}</strong>.
+        Deseja assumir esta carga?
+      </p>
+      <div class="btn-row">
+        <button class="btn-outline" onclick="this.closest('.insucesso-modal-overlay').remove()">Não</button>
+        <button class="btn-danger-driver" onclick="this.closest('.insucesso-modal-overlay').remove(); onConfirmCarga()">Sim, assumir</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window.onConfirmCarga = onConfirm;
+}
 
 // ==================== RENDER ====================
 function renderCarga() {
   const container = document.getElementById('cargaContent');
   const total = entregas.length;
-  const confirmadas = entregas.filter(e => e.confirma_entrega === true).length;
   const falhas = entregas.filter(e => e.confirma_entrega === false).length;
-  const pendentes = total - confirmadas - falhas;
+  const pendentes = total - falhas;
+  const cargasUnicas = [...new Set(entregas.map(e => e.fc).filter(Boolean))];
 
   let html = `
     <div class="carga-header">
-      <h2>Carga ${entregas[0].fc || ''}</h2>
-      <span class="badge">${total} entregas</span>
+      <h2>${cargasUnicas.length > 1 ? `Cargas ${cargasUnicas.join(', ')}` : `Carga ${cargasUnicas[0] || ''}`}</h2>
+      <span class="badge">${total} pendentes</span>
     </div>
     <div class="stats">
       <div class="stat-card pendente"><div class="num">${pendentes}</div><div class="label">Pendentes</div></div>
-      <div class="stat-card ok"><div class="num">${confirmadas}</div><div class="label">Confirmadas</div></div>
       <div class="stat-card falha"><div class="num">${falhas}</div><div class="label">Insucesso</div></div>
     </div>
   `;
 
   entregas.forEach(e => {
-    const status = e.confirma_entrega === null ? 'pendente' : (e.confirma_entrega ? 'confirmada' : 'insucesso');
-    const statusLabel = e.confirma_entrega === null ? 'Pendente' : (e.confirma_entrega ? '✓ Confirmada' : '✗ Insucesso');
+    const status = e.confirma_entrega === null ? 'pendente' : 'insucesso';
+    const statusLabel = e.confirma_entrega === null ? 'Pendente' : '✗ Insucesso';
     const done = e.confirma_entrega !== null;
     const endereco = [e.bairro, e.cidade].filter(Boolean).join(' - ') || '—';
     const chatwootAvailable = chatwootConfig && e.whatsapp_jid;
@@ -127,6 +277,7 @@ function renderCarga() {
           <span class="nf-num">NF ${e.nf || '—'}${e.has_recent_contact_message ? '<span class="recent-badge">💬 Nova mensagem</span>' : ''}</span>
           <span class="status-badge ${status}">${statusLabel}</span>
         </div>
+        ${cargasUnicas.length > 1 ? `<div style="font-size:11px;color:#888;margin:2px 0 4px">Carga ${e.fc || '—'}</div>` : ''}
         <div class="cliente">${e.cliente || '—'}</div>
         <div class="endereco">📍 ${endereco}</div>
         <div class="info-row">
@@ -155,6 +306,8 @@ function renderCarga() {
 
 // ==================== CONFIRMAR ENTREGA ====================
 window.confirmarEntrega = async function(id) {
+  const check = await api(`/motorista/entrega/${id}/status`);
+  if (check && check.processada) { showToast('Esta entrega já foi processada por outro motorista'); recarregarEntregas(); return; }
   const body = {};
   if ('geolocation' in navigator) {
     try {
@@ -167,7 +320,7 @@ window.confirmarEntrega = async function(id) {
     method: 'PUT',
     body: JSON.stringify(body),
   });
-  if (!result) return;
+  if (!result || result.error) { if (result?.error) showToast(result.error); return; }
   const e = entregas.find(x => x.id === id);
   if (e) { e.confirma_entrega = true; e.latitude = body.latitude; e.longitude = body.longitude; }
   renderCarga();
@@ -214,6 +367,9 @@ window.fecharInsucesso = function() {
 window.confirmarInsucesso = async function() {
   const motivo = document.getElementById('motivoInsucesso').value;
   if (!motivo) { showToast('Selecione um motivo'); return; }
+  const id = insucessoId;
+  const check = await api(`/motorista/entrega/${id}/status`);
+  if (check && check.processada) { showToast('Esta entrega já foi processada por outro motorista'); fecharInsucesso(); recarregarEntregas(); return; }
   const body = { motivo };
   if ('geolocation' in navigator) {
     try {
@@ -222,15 +378,14 @@ window.confirmarInsucesso = async function() {
       body.longitude = pos.coords.longitude;
     } catch {}
   }
-  const result = await api(`/motorista/entregas/${insucessoId}/insucesso`, {
+  const result = await api(`/motorista/entregas/${id}/insucesso`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
   fecharInsucesso();
-  if (!result) return;
-  const e = entregas.find(x => x.id === insucessoId);
+  if (!result || result.error) { if (result?.error) showToast(result.error); return; }
+  const e = entregas.find(x => x.id === id);
   if (e) { e.confirma_entrega = false; e.motivo_insucesso = motivo; e.latitude = body.latitude; e.longitude = body.longitude; }
-  insucessoId = null;
   renderCarga();
   showToast('Inconsistência registrada');
 };
@@ -245,6 +400,7 @@ window.openChat = async function(entregaId) {
 
   currentChatId = entregaId;
   document.getElementById('chatHeaderName').textContent = e.cliente || 'WhatsApp';
+  document.getElementById('chatHeaderStatus').textContent = `Motorista: ${user?.nome || '—'}`;
   document.getElementById('chatMessages').innerHTML = '<div class="chat-empty">Carregando mensagens...</div>';
   document.getElementById('chatInput').value = '';
   document.getElementById('chatSendBtn').disabled = true;
@@ -263,24 +419,34 @@ window.closeChat = function() {
   currentChatId = null;
   showScreen('screenCarga');
   setSupportBubbleVisible(true);
+  iniciarPollEntregas();
 };
 
 function setSupportBubbleVisible(show) {
-  if (window.$chatwoot && typeof window.$chatwoot.toggleBubbleVisibility === 'function') {
-    window.$chatwoot.toggleBubbleVisibility(show);
-    return;
+  if (window.$chatwoot) {
+    try {
+      if (typeof window.$chatwoot.toggleBubbleVisibility === 'function') {
+        window.$chatwoot.toggleBubbleVisibility(show ? 'show' : 'hide');
+      }
+      if (!show && typeof window.$chatwoot.toggle === 'function') {
+        window.$chatwoot.toggle('close');
+      }
+    } catch (e) {}
   }
-  const id = 'chatwoot-bubble-style';
-  if (!show) {
-    if (!document.getElementById(id)) {
-      const s = document.createElement('style');
-      s.id = id;
-      s.textContent = '.woot--bubble-holder, .woot--widget-holder { display: none !important; }';
-      document.head.appendChild(s);
+  const sel = '.woot-widget-holder, .woot--widget-holder, .woot--bubble-holder, [class*="woot-widget"], [class*="woot--bubble"]';
+  document.querySelectorAll(sel).forEach(el => {
+    if (show) {
+      el.style.removeProperty('display');
+      el.style.removeProperty('visibility');
+      el.style.removeProperty('opacity');
+      el.style.removeProperty('pointer-events');
+    } else {
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+      el.style.setProperty('opacity', '0', 'important');
+      el.style.setProperty('pointer-events', 'none', 'important');
     }
-  } else {
-    document.getElementById(id)?.remove();
-  }
+  });
 }
 
 async function fetchMessages() {
