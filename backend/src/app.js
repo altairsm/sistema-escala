@@ -2882,17 +2882,18 @@ app.delete('/api/motorista/carga/:numero', authMiddleware, async (req, res) => {
   }
 });
 
-// Listar entregas pendentes/insucesso de todas as cargas associadas
+// Listar entregas do romaneio aberto do motorista
 app.get('/api/motorista/minhas-entregas', authMiddleware, async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT e.id, e.nf, e.fc, e.cliente, e.bairro, e.cidade, e.cep, e.telefone, e.whatsapp_jid,
              e.valor_nf, e.qtd_volumes, e.peso_real, e.confirma_entrega, e.motivo_insucesso,
              e.chave_nf, e.cnpj_cliente, e.latitude, e.longitude,
-             e.chatwoot_contact_id, e.chatwoot_conversation_id
+             e.chatwoot_contact_id, e.chatwoot_conversation_id, e.romaneio_id,
+             r.numero as romaneio_numero, r.status as romaneio_status
       FROM entregas e
-      JOIN cargas c ON c.carga = e.fc AND c.transportadora_id = e.transportadora_id
-      WHERE c.motorista_id = $1 AND e.transportadora_id = $2
+      JOIN romaneios r ON r.id = e.romaneio_id
+      WHERE r.motorista_id = $1 AND e.transportadora_id = $2 AND r.status = 'aberto'
         AND (e.confirma_entrega IS NULL OR e.confirma_entrega = false)
       ORDER BY e.fc, e.cliente
     `, [req.user.id, req.user.transportadora_id]);
@@ -2984,6 +2985,276 @@ app.get('/api/motorista/carga/:numero', authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== ROMANEIOS ====================
+
+// Helper: gerar número do romaneio
+function gerarNumeroRomaneio(motoristaId) {
+  const agora = new Date();
+  const dd = String(agora.getDate()).padStart(2, '0');
+  const mm = String(agora.getMonth() + 1).padStart(2, '0');
+  const yy = String(agora.getFullYear()).slice(2);
+  return `ROM-${dd}${mm}${yy}-${motoristaId}`;
+}
+
+// Helper: verificar se romaneio pode ser finalizado
+async function tentarFinalizarRomaneio(romaneioId, transportadoraId) {
+  const { rows } = await query(`
+    SELECT COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE confirma_entrega IS NOT NULL)::int AS processadas
+    FROM entregas WHERE romaneio_id = $1 AND transportadora_id = $2
+  `, [romaneioId, transportadoraId]);
+  if (rows.length > 0 && rows[0].total > 0 && rows[0].total === rows[0].processadas) {
+    await query('UPDATE romaneios SET status = $1, updated_at = NOW() WHERE id = $2',
+      ['finalizado', romaneioId]);
+    return true;
+  }
+  return false;
+}
+
+// Obter romaneio aberto do motorista + entregas
+app.get('/api/motorista/romaneio/atual', authMiddleware, async (req, res) => {
+  try {
+    const { rows: roms } = await query(`
+      SELECT r.id, r.numero, r.status, r.created_at,
+        (SELECT COUNT(*)::int FROM entregas WHERE romaneio_id = r.id AND confirma_entrega IS NULL) AS pendentes,
+        (SELECT COUNT(*)::int FROM entregas WHERE romaneio_id = r.id AND confirma_entrega = true) AS sucesso,
+        (SELECT COUNT(*)::int FROM entregas WHERE romaneio_id = r.id AND confirma_entrega = false) AS insucesso,
+        (SELECT COUNT(*)::int FROM entregas WHERE romaneio_id = r.id) AS total
+      FROM romaneios r
+      WHERE r.motorista_id = $1 AND r.transportadora_id = $2 AND r.status = 'aberto'
+      ORDER BY r.id DESC LIMIT 1
+    `, [req.user.id, req.user.transportadora_id]);
+
+    if (roms.length === 0) {
+      return res.json({ romaneio: null, entregas: [] });
+    }
+
+    const rom = roms[0];
+    const { rows: entregas } = await query(`
+      SELECT e.id, e.nf, e.fc, e.cliente, e.bairro, e.cidade, e.cep, e.telefone, e.whatsapp_jid,
+             e.valor_nf, e.qtd_volumes, e.peso_real, e.confirma_entrega, e.motivo_insucesso,
+             e.chave_nf, e.cnpj_cliente, e.latitude, e.longitude,
+             e.chatwoot_contact_id, e.chatwoot_conversation_id
+      FROM entregas e
+      WHERE e.romaneio_id = $1 AND e.transportadora_id = $2
+      ORDER BY e.fc, e.cliente
+    `, [rom.id, req.user.transportadora_id]);
+
+    res.json({ romaneio: rom, entregas });
+  } catch (err) {
+    console.error('Erro ao buscar romaneio atual:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar romaneio' });
+  }
+});
+
+// Preview entregas de uma carga (sem vincular)
+app.get('/api/motorista/carga/:numero/preview', authMiddleware, async (req, res) => {
+  try {
+    const { rows: cargas } = await query(
+      'SELECT id, carga FROM cargas WHERE carga = $1 AND transportadora_id = $2',
+      [req.params.numero, req.user.transportadora_id]
+    );
+    if (cargas.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+
+    // Busca entregas pendentes ou com insucesso
+    const { rows } = await query(`
+      SELECT id, nf, fc, cliente, bairro, cidade, cep, telefone, whatsapp_jid,
+             valor_nf, qtd_volumes, peso_real, confirma_entrega, motivo_insucesso,
+             chave_nf, cnpj_cliente, romaneio_id
+      FROM entregas
+      WHERE fc = $1 AND transportadora_id = $2
+        AND (confirma_entrega IS NULL OR confirma_entrega = false)
+      ORDER BY nf
+    `, [req.params.numero, req.user.transportadora_id]);
+
+    // Verifica se cada entrega já está em um romaneio ativo
+    const comVinculo = await Promise.all(rows.map(async (e) => {
+      if (!e.romaneio_id) return { ...e, em_romaneio: null };
+      const { rows: r } = await query(
+        'SELECT id, numero, status, motorista_id FROM romaneios WHERE id = $1',
+        [e.romaneio_id]
+      );
+      if (r.length === 0) return { ...e, em_romaneio: null };
+      return {
+        ...e,
+        em_romaneio: {
+          id: r[0].id,
+          numero: r[0].numero,
+          status: r[0].status,
+          mesmo_motorista: r[0].motorista_id === req.user.id,
+        },
+      };
+    }));
+
+    res.json({ carga: cargas[0], entregas: comVinculo });
+  } catch (err) {
+    console.error('Erro ao preview carga:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar entregas' });
+  }
+});
+
+// Criar romaneio com entregas selecionadas
+app.post('/api/motorista/romaneio', authMiddleware, async (req, res) => {
+  const { entrega_ids } = req.body;
+  if (!entrega_ids || !Array.isArray(entrega_ids) || entrega_ids.length === 0) {
+    return res.status(400).json({ error: 'Selecione pelo menos uma entrega' });
+  }
+  try {
+    // Verifica se já tem romaneio aberto
+    const { rows: existentes } = await query(
+      'SELECT id, numero FROM romaneios WHERE motorista_id = $1 AND transportadora_id = $2 AND status = $3 LIMIT 1',
+      [req.user.id, req.user.transportadora_id, 'aberto']
+    );
+
+    let romaneio;
+    if (existentes.length > 0) {
+      romaneio = existentes[0];
+    } else {
+      const numero = gerarNumeroRomaneio(req.user.id);
+      const { rows } = await query(
+        `INSERT INTO romaneios (numero, motorista_id, transportadora_id, status)
+         VALUES ($1, $2, $3, 'aberto') RETURNING id, numero, status`,
+        [numero, req.user.id, req.user.transportadora_id]
+      );
+      romaneio = rows[0];
+    }
+
+    // Verifica se entregas já não estão em outro romaneio ativo
+    const { rows: conflitos } = await query(`
+      SELECT e.id, e.nf, r.numero as romaneio_numero
+      FROM entregas e
+      JOIN romaneios r ON r.id = e.romaneio_id AND r.status = 'aberto' AND r.motorista_id != $1
+      WHERE e.id = ANY($2::int[]) AND e.transportadora_id = $3
+    `, [req.user.id, entrega_ids, req.user.transportadora_id]);
+
+    if (conflitos.length > 0) {
+      return res.status(409).json({
+        error: `Entrega(s) NF ${conflitos.map(c => c.nf).join(', ')} já estão em outro romaneio ativo`,
+        conflitos,
+      });
+    }
+
+    // Vincula entregas ao romaneio
+    await query(
+      `UPDATE entregas SET romaneio_id = $1, updated_at = NOW()
+       WHERE id = ANY($2::int[]) AND transportadora_id = $3
+       AND (confirma_entrega IS NULL OR confirma_entrega = false)`,
+      [romaneio.id, entrega_ids, req.user.transportadora_id]
+    );
+
+    const { rows: vinculadas } = await query(
+      'SELECT id, nf, fc FROM entregas WHERE id = ANY($1::int[])',
+      [entrega_ids]
+    );
+
+    res.json({ romaneio, entregas_vinculadas: vinculadas });
+  } catch (err) {
+    console.error('Erro ao criar romaneio:', err.message);
+    res.status(500).json({ error: 'Erro ao criar romaneio' });
+  }
+});
+
+// Adicionar mais entregas ao romaneio aberto
+app.post('/api/motorista/romaneio/:id/entregas', authMiddleware, async (req, res) => {
+  const { entrega_ids } = req.body;
+  if (!entrega_ids || !Array.isArray(entrega_ids) || entrega_ids.length === 0) {
+    return res.status(400).json({ error: 'Selecione pelo menos uma entrega' });
+  }
+  try {
+    const { rows: rom } = await query(
+      'SELECT id, status, motorista_id FROM romaneios WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rom.length === 0) return res.status(404).json({ error: 'Romaneio não encontrado' });
+    if (rom[0].status !== 'aberto') return res.status(400).json({ error: 'Romaneio já finalizado' });
+    if (rom[0].motorista_id !== req.user.id) return res.status(403).json({ error: 'Romaneio de outro motorista' });
+
+    await query(
+      `UPDATE entregas SET romaneio_id = $1, updated_at = NOW()
+       WHERE id = ANY($2::int[]) AND transportadora_id = $3
+       AND (confirma_entrega IS NULL OR confirma_entrega = false)`,
+      [req.params.id, entrega_ids, req.user.transportadora_id]
+    );
+
+    const { rows: vinculadas } = await query(
+      'SELECT id, nf, fc FROM entregas WHERE id = ANY($1::int[])',
+      [entrega_ids]
+    );
+
+    res.json({ entregas_vinculadas: vinculadas });
+  } catch (err) {
+    console.error('Erro ao adicionar entregas:', err.message);
+    res.status(500).json({ error: 'Erro ao adicionar entregas' });
+  }
+});
+
+// Remover entrega do romaneio aberto
+app.delete('/api/motorista/romaneio/:id/entregas/:eid', authMiddleware, async (req, res) => {
+  try {
+    const { rows: rom } = await query(
+      'SELECT id, status, motorista_id FROM romaneios WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (rom.length === 0) return res.status(404).json({ error: 'Romaneio não encontrado' });
+    if (rom[0].status !== 'aberto') return res.status(400).json({ error: 'Romaneio já finalizado' });
+    if (rom[0].motorista_id !== req.user.id) return res.status(403).json({ error: 'Romaneio de outro motorista' });
+
+    await query(
+      'UPDATE entregas SET romaneio_id = NULL, updated_at = NOW() WHERE id = $1 AND transportadora_id = $2',
+      [req.params.eid, req.user.transportadora_id]
+    );
+
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('Erro ao remover entrega:', err.message);
+    res.status(500).json({ error: 'Erro ao remover entrega' });
+  }
+});
+
+// Gerar romaneio a partir de uma carga (admin)
+app.post('/api/cargas/:id/gerar-romaneio', authMiddleware, transportadoraFilter, async (req, res) => {
+  try {
+    const { rows: cargas } = await query(
+      'SELECT id, carga, motorista_id FROM cargas WHERE id = $1 AND transportadora_id = $2',
+      [req.params.id, req.user.transportadora_id]
+    );
+    if (cargas.length === 0) return res.status(404).json({ error: 'Carga não encontrada' });
+    const c = cargas[0];
+    if (!c.motorista_id) return res.status(400).json({ error: 'Carga não tem motorista definido' });
+
+    // Busca entregas pendentes da carga
+    const { rows: entregas } = await query(
+      `SELECT id FROM entregas WHERE fc = $1 AND transportadora_id = $2
+       AND (confirma_entrega IS NULL OR confirma_entrega = false)`,
+      [c.carga, req.user.transportadora_id]
+    );
+
+    if (entregas.length === 0) return res.status(400).json({ error: 'Nenhuma entrega pendente nesta carga' });
+
+    // Cria romaneio
+    const numero = gerarNumeroRomaneio(c.motorista_id);
+    const { rows: roms } = await query(
+      `INSERT INTO romaneios (numero, motorista_id, transportadora_id)
+       VALUES ($1, $2, $3) RETURNING id, numero`,
+      [numero, c.motorista_id, req.user.transportadora_id]
+    );
+    const rom = roms[0];
+
+    // Vincula entregas
+    const ids = entregas.map(e => e.id);
+    await query(
+      `UPDATE entregas SET romaneio_id = $1, updated_at = NOW()
+       WHERE id = ANY($2::int[])`,
+      [rom.id, ids]
+    );
+
+    res.json({ romaneio: rom, entregas_vinculadas: ids.length });
+  } catch (err) {
+    console.error('Erro ao gerar romaneio:', err.message);
+    res.status(500).json({ error: 'Erro ao gerar romaneio' });
+  }
+});
+
 // Confirmar entrega (com opção de lat/lng)
 app.put('/api/motorista/entregas/:id/confirmar', authMiddleware, async (req, res) => {
   const { latitude, longitude } = req.body;
@@ -2996,7 +3267,7 @@ app.put('/api/motorista/entregas/:id/confirmar', authMiddleware, async (req, res
         updated_at = NOW()
       WHERE id = $4 AND transportadora_id = $5
         AND confirma_entrega IS NULL
-      RETURNING id, nf, fc, confirma_entrega, motorista_id
+      RETURNING id, nf, fc, confirma_entrega, motorista_id, romaneio_id
     `, [req.user.id, latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
     if (rows.length === 0) {
       const existing = await query('SELECT confirma_entrega FROM entregas WHERE id = $1 AND transportadora_id = $2', [req.params.id, req.user.transportadora_id]);
@@ -3005,7 +3276,12 @@ app.put('/api/motorista/entregas/:id/confirmar', authMiddleware, async (req, res
       }
       return res.status(404).json({ error: 'Entrega não encontrada' });
     }
-    res.json(rows[0]);
+    const result = rows[0];
+    if (result.romaneio_id) {
+      const finalizado = await tentarFinalizarRomaneio(result.romaneio_id, req.user.transportadora_id);
+      result.romaneio_finalizado = finalizado;
+    }
+    res.json(result);
   } catch (err) {
     console.error('Erro ao confirmar entrega:', err.message);
     res.status(500).json({ error: 'Erro ao confirmar entrega' });
@@ -3026,7 +3302,7 @@ app.post('/api/motorista/entregas/:id/insucesso', authMiddleware, async (req, re
         updated_at = NOW()
       WHERE id = $5 AND transportadora_id = $6
         AND confirma_entrega IS NULL
-      RETURNING id, nf, fc, confirma_entrega, motivo_insucesso, motorista_id
+      RETURNING id, nf, fc, confirma_entrega, motivo_insucesso, motorista_id, romaneio_id
     `, [req.user.id, motivo, latitude || null, longitude || null, req.params.id, req.user.transportadora_id]);
     if (rows.length === 0) {
       const existing = await query('SELECT confirma_entrega FROM entregas WHERE id = $1 AND transportadora_id = $2', [req.params.id, req.user.transportadora_id]);
@@ -3035,7 +3311,12 @@ app.post('/api/motorista/entregas/:id/insucesso', authMiddleware, async (req, re
       }
       return res.status(404).json({ error: 'Entrega não encontrada' });
     }
-    res.json(rows[0]);
+    const result = rows[0];
+    if (result.romaneio_id) {
+      const finalizado = await tentarFinalizarRomaneio(result.romaneio_id, req.user.transportadora_id);
+      result.romaneio_finalizado = finalizado;
+    }
+    res.json(result);
   } catch (err) {
     console.error('Erro ao reportar insucesso:', err.message);
     res.status(500).json({ error: 'Erro ao reportar insucesso' });

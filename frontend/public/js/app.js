@@ -1142,7 +1142,43 @@ window.confirmarEquipe = async function(id) {
       c.ajudante_02 = payload.ajudante_02;
     }
     renderContent(); renderTabs();
+    // Pergunta se quer gerar romaneio
+    if (payload.motorista_id) {
+      setTimeout(() => perguntarGerarRomaneio(id), 300);
+    }
   } else alert('Erro ao confirmar equipe');
+};
+
+window.perguntarGerarRomaneio = function(cargaId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'romaneioModal';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header"><div class="modal-title">📋 Gerar Romaneio</div>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button></div>
+      <div class="modal-body" style="text-align:center;padding:24px">
+        <p style="margin-bottom:20px;color:#555">Deseja gerar um romaneio com as entregas desta carga para o motorista?</p>
+        <div style="display:flex;gap:12px;justify-content:center">
+          <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Não</button>
+          <button class="btn btn-primary" onclick="gerarRomaneioCarga(${cargaId})">Sim, gerar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+};
+
+window.gerarRomaneioCarga = async function(cargaId) {
+  const el = document.getElementById('romaneioModal');
+  if (el) el.remove();
+  const result = await apiPost(`/cargas/${cargaId}/gerar-romaneio`);
+  if (result?.romaneio) {
+    alert(`✅ Romaneio ${result.romaneio.numero} gerado com ${result.entregas_vinculadas} entrega(s)!`);
+  } else if (result?.error) {
+    alert(`Erro: ${result.error}`);
+  }
 };
 
 window.editarEquipe = async function(id) {

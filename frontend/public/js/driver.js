@@ -8,6 +8,7 @@ function clearAuth() { localStorage.removeItem('token'); localStorage.removeItem
 // ==================== CONFIG ====================
 const API = '/api';
 let user = null;
+let romaneio = null;
 let entregas = [];
 let chatwootConfig = null;
 
@@ -18,10 +19,7 @@ let chatwootConfig = null;
   if (user.funcao !== 'motorista') { window.location.href = 'index.html'; return; }
   document.getElementById('userInfo').textContent = user.nome || user.email;
   loadChatwootConfig().then(() => initChatwootWidget());
-  loadMinhasCargas();
-  document.getElementById('inputNovaCarga').addEventListener('keydown', e => {
-    if (e.key === 'Enter') adicionarCarga();
-  });
+  loadRomaneioAtual();
 })();
 
 async function api(url, opts = {}) {
@@ -54,13 +52,14 @@ function showLoading(show) {
 
 // ==================== SCREENS ====================
 function showScreen(id) {
-  ['screenHome', 'screenCarga', 'screenChat'].forEach(s => {
+  ['screenHome', 'screenCarga', 'screenImport', 'screenChat'].forEach(s => {
     document.getElementById(s).classList.toggle('hidden', s !== id);
   });
-  document.getElementById('btnBack').classList.toggle('hidden', id !== 'screenCarga');
+  const showBack = id === 'screenCarga' || id === 'screenImport';
+  document.getElementById('btnBack').classList.toggle('hidden', !showBack);
   document.querySelector('.driver-header').classList.toggle('hidden', id === 'screenChat');
-  const title = id === 'screenHome' ? 'Entregas' : (id === 'screenChat' ? 'WhatsApp' : 'Entregas');
-  document.getElementById('driverTitle').textContent = title;
+  const titles = { screenHome: 'Entregas', screenCarga: 'Entregas', screenImport: 'Importar Carga', screenChat: 'WhatsApp' };
+  document.getElementById('driverTitle').textContent = titles[id] || 'Entregas';
   if (id !== 'screenCarga') pararPollEntregas();
 }
 
@@ -69,7 +68,7 @@ function goHome() {
   pararPollEntregas();
   showScreen('screenHome');
   entregas = [];
-  loadMinhasCargas();
+  loadRomaneioAtual();
 }
 
 function logout() {
@@ -77,107 +76,146 @@ function logout() {
   window.location.href = 'index.html';
 }
 
-// ==================== MINHAS CARGAS ====================
-let minhasCargas = [];
-
-async function loadMinhasCargas() {
+// ==================== ROMANEIOS ====================
+async function loadRomaneioAtual() {
   showScreen('screenHome');
-  const data = await api('/motorista/minhas-cargas');
-  if (!data || !Array.isArray(data)) { showToast('Erro ao carregar cargas'); return; }
-  minhasCargas = data;
+  const data = await api('/motorista/romaneio/atual');
+  if (!data) { showToast('Erro ao carregar romaneio'); return; }
+  romaneio = data.romaneio;
+  entregas = data.entregas || [];
   renderHome();
 }
 
-const STATUS_LABELS = {
-  1: { label: 'Em programação', color: '#1a73e8' },
-  2: { label: 'Com equipe', color: '#e37400' },
-  3: { label: 'Em rota', color: '#34a853' },
-  4: { label: 'Parcial', color: '#f9ab00' },
-  5: { label: 'Parcial', color: '#f9ab00' },
-  6: { label: 'Concluída', color: '#999' },
-};
-
 function renderHome() {
-  const list = document.getElementById('cargasList');
-  if (minhasCargas.length === 0) {
-    list.innerHTML = '<div class="empty-cargas">Nenhuma carga associada ainda.<br>Adicione uma carga abaixo.</div>';
+  const container = document.getElementById('homeContent');
+  if (!romaneio) {
+    container.innerHTML = `
+      <div class="home-card">
+        <h2>🚚 Romaneio</h2>
+        <p class="home-subtitle">Nenhum romaneio aberto</p>
+        <div style="text-align:center;padding:20px 0">
+          <p style="color:#888;margin-bottom:16px">Importe uma carga para criar um romaneio com as entregas.</p>
+          <button class="btn-primary-driver btn-full" onclick="abrirImportarCarga()">Importar Carga</button>
+        </div>
+        <div class="logout-row"><button onclick="logout()">Sair</button></div>
+      </div>
+    `;
     return;
   }
-  list.innerHTML = minhasCargas.map(c => {
-    const st = STATUS_LABELS[c.status] || STATUS_LABELS[4];
-    return `
-    <div class="carga-item">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:12px;height:12px;border-radius:50%;background:${st.color};flex-shrink:0"></span>
-        <div>
-          <div class="carga-num">${c.carga}</div>
-          <div style="font-size:11px;color:#888">${st.label} · ${c.pendentes} pendente${c.pendentes !== 1 ? 's' : ''}${c.insucesso > 0 ? `, ${c.insucesso} insucesso${c.insucesso !== 1 ? 's' : ''}` : ''}</div>
-        </div>
+
+  const pendentes = entregas.filter(e => e.confirma_entrega === null).length;
+  const sucesso = entregas.filter(e => e.confirma_entrega === true).length;
+  const falhas = entregas.filter(e => e.confirma_entrega === false).length;
+  const total = entregas.length;
+
+  container.innerHTML = `
+    <div class="home-card">
+      <h2>📋 ${romaneio.numero}</h2>
+      <p class="home-subtitle">Romaneio aberto</p>
+      <div class="stats">
+        <div class="stat-card pendente"><div class="num">${pendentes}</div><div class="label">Pendentes</div></div>
+        <div class="stat-card ok"><div class="num">${sucesso}</div><div class="label">Sucesso</div></div>
+        <div class="stat-card falha"><div class="num">${falhas}</div><div class="label">Insucesso</div></div>
       </div>
-      ${c.status !== 6 ? `<button class="remove-btn" onclick="removerCarga('${c.carga}')" title="Remover carga">×</button>` : ''}
-    </div>`;
-  }).join('');
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-primary-driver btn-full" onclick="verEntregas()">Ver Entregas (${pendentes})</button>
+        <button class="btn-outline btn-full" style="border-color:#1a73e8;color:#1a73e8;padding:14px;font-size:16px;font-weight:600;border-radius:12px" onclick="abrirImportarCarga()">+ Importar Carga</button>
+      </div>
+      <div class="logout-row"><button onclick="logout()">Sair</button></div>
+    </div>
+  `;
 }
 
-window.adicionarCarga = async function() {
-  const num = document.getElementById('inputNovaCarga').value.trim();
-  if (!num) { showToast('Digite o número da carga'); return; }
-  document.getElementById('inputNovaCarga').value = '';
-  document.getElementById('inputNovaCarga').disabled = true;
-
-  const data = await api('/motorista/carga/associar', {
-    method: 'POST',
-    body: JSON.stringify({ carga: num }),
+// ==================== IMPORTAR CARGA ====================
+window.abrirImportarCarga = function() {
+  showScreen('screenImport');
+  document.getElementById('importContent').innerHTML = `
+    <div class="home-card">
+      <h2>📦 Importar Carga</h2>
+      <p class="home-subtitle">Digite o número da carga para visualizar as entregas</p>
+      <div class="add-carga-row" style="margin-bottom:12px">
+        <input type="text" id="inputImportCarga" placeholder="Nº da Carga" inputmode="numeric" autocomplete="off">
+        <button class="btn-add-carga" onclick="buscarCargaImport()">Buscar</button>
+      </div>
+      <div id="importPreview"></div>
+    </div>
+  `;
+  document.getElementById('inputImportCarga').focus();
+  document.getElementById('inputImportCarga').addEventListener('keydown', e => {
+    if (e.key === 'Enter') buscarCargaImport();
   });
+};
 
-  document.getElementById('inputNovaCarga').disabled = false;
-  document.getElementById('inputNovaCarga').focus();
+let importEntregaIds = [];
 
-  if (!data) return;
+window.buscarCargaImport = async function() {
+  const num = document.getElementById('inputImportCarga').value.trim();
+  if (!num) { showToast('Digite o número da carga'); return; }
+  const preview = document.getElementById('importPreview');
+  preview.innerHTML = '<div class="loading">Buscando</div>';
 
-  if (data.error) {
-    showToast(data.error);
+  const data = await api(`/motorista/carga/${encodeURIComponent(num)}/preview`);
+  if (!data) { preview.innerHTML = ''; return; }
+  if (data.error) { preview.innerHTML = `<div class="empty-state"><p>${data.error}</p></div>`; return; }
+
+  const entregasCarga = data.entregas || [];
+  if (entregasCarga.length === 0) {
+    preview.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Nenhuma entrega pendente nesta carga</p></div>';
     return;
   }
 
-  if (data.status === 'conflict') {
-    mostrarModalConflito(data.carga, data.current_motorista, async () => {
-      const forceData = await api('/motorista/carga/associar', {
-        method: 'POST',
-        body: JSON.stringify({ carga: num, force: true }),
-      });
-      if (forceData && forceData.status === 'ok') {
-        showToast(`Carga ${num} associada com sucesso!`);
-        await loadMinhasCargas();
-      }
+  importEntregaIds = entregasCarga.map(e => e.id);
+
+  preview.innerHTML = `
+    <p style="font-size:13px;color:#888;margin:8px 0 12px">${entregasCarga.length} entrega(s) encontrada(s) na carga ${data.carga.carga}</p>
+    <div style="max-height:400px;overflow-y:auto">
+      ${entregasCarga.map((e, i) => {
+        const jaVinculado = e.em_romaneio && e.em_romaneio.status === 'aberto';
+        const disabled = jaVinculado && !e.em_romaneio.mesmo_motorista;
+        return `
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8f9fa;border-radius:8px;margin-bottom:6px;${disabled ? 'opacity:.5' : ''}">
+          <input type="checkbox" class="import-checkbox" data-id="${e.id}" checked ${disabled ? 'disabled' : ''} style="width:18px;height:18px;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:14px">NF ${e.nf || '—'} ${jaVinculado ? `<span style="font-size:11px;color:#e37400">(já em ${e.em_romaneio.numero})</span>` : ''}</div>
+            <div style="font-size:12px;color:#666">${e.cliente || '—'} · 📦 ${e.qtd_volumes || 1} vol · 💰 R$ ${parseFloat(e.valor_nf || 0).toFixed(2)}</div>
+          </div>
+        </label>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn-outline btn-full" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px" onclick="goHome()">Cancelar</button>
+      <button class="btn-primary-driver btn-full" onclick="adicionarAoRomaneio()" style="padding:12px;font-size:14px">Adicionar ao Romaneio</button>
+    </div>
+  `;
+
+  // Atualiza lista ao desmarcar
+  preview.querySelectorAll('.import-checkbox').forEach(cb => {
+    cb.addEventListener('change', () => {
+      importEntregaIds = [...preview.querySelectorAll('.import-checkbox:checked')].map(c => parseInt(c.dataset.id));
     });
-    return;
-  }
-
-  if (data.status === 'ok') {
-    showToast(`Carga ${num} associada com sucesso!`);
-    await loadMinhasCargas();
-  }
+  });
 };
 
-window.removerCarga = async function(numero) {
-  const data = await api(`/motorista/carga/${encodeURIComponent(numero)}`, { method: 'DELETE' });
+window.adicionarAoRomaneio = async function() {
+  if (importEntregaIds.length === 0) { showToast('Selecione pelo menos uma entrega'); return; }
+  const data = await api('/motorista/romaneio', {
+    method: 'POST',
+    body: JSON.stringify({ entrega_ids: importEntregaIds }),
+  });
   if (!data) return;
-  showToast(`Carga ${numero} removida`);
-  await loadMinhasCargas();
+  if (data.error) { showToast(data.error); return; }
+  showToast(`${data.entregas_vinculadas.length} entrega(s) adicionada(s) ao romaneio ${data.romaneio.numero}`);
+  await loadRomaneioAtual();
 };
 
+// ==================== VER ENTREGAS ====================
 window.verEntregas = async function() {
-  if (minhasCargas.length === 0) {
-    showToast('Adicione pelo menos uma carga primeiro');
-    return;
-  }
-  document.getElementById('inputNovaCarga').disabled = true;
+  if (!romaneio) { showToast('Nenhum romaneio aberto'); return; }
   showScreen('screenCarga');
   showLoading(true);
   const data = await api('/motorista/minhas-entregas');
-  document.getElementById('inputNovaCarga').disabled = false;
-  if (!data) { showScreen('screenHome'); return; }
+  if (!data) { goHome(); return; }
+  if (!Array.isArray(data)) { goHome(); return; }
   entregas = data;
   entregas.sort((a, b) => {
     if (a.has_recent_contact_message && !b.has_recent_contact_message) return -1;
@@ -223,43 +261,24 @@ function pararPollEntregas() {
   }
 }
 
-function mostrarModalConflito(carga, motorista, onConfirm) {
-  const overlay = document.createElement('div');
-  overlay.className = 'insucesso-modal-overlay';
-  overlay.id = 'conflitoOverlay';
-  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
-  overlay.innerHTML = `
-    <div class="insucesso-modal">
-      <h3>⚠️ Carga já associada</h3>
-      <p style="font-size:14px;color:#555;margin:12px 0;line-height:1.5">
-        A carga <strong>${carga}</strong> já está associada a <strong>${motorista}</strong>.
-        Deseja assumir esta carga?
-      </p>
-      <div class="btn-row">
-        <button class="btn-outline" onclick="this.closest('.insucesso-modal-overlay').remove()">Não</button>
-        <button class="btn-danger-driver" onclick="this.closest('.insucesso-modal-overlay').remove(); onConfirmCarga()">Sim, assumir</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  window.onConfirmCarga = onConfirm;
-}
-
 // ==================== RENDER ====================
 function renderCarga() {
   const container = document.getElementById('cargaContent');
-  const total = entregas.length;
+  const pendentes = entregas.filter(e => e.confirma_entrega === null).length;
   const falhas = entregas.filter(e => e.confirma_entrega === false).length;
-  const pendentes = total - falhas;
-  const cargasUnicas = [...new Set(entregas.map(e => e.fc).filter(Boolean))];
+  const total = entregas.length;
 
   let html = `
     <div class="carga-header">
-      <h2>${cargasUnicas.length > 1 ? `Cargas ${cargasUnicas.join(', ')}` : `Carga ${cargasUnicas[0] || ''}`}</h2>
-      <span class="badge">${total} pendentes</span>
+      <div>
+        <h2>📋 ${romaneio?.numero || ''}</h2>
+        <div style="font-size:12px;color:#888">${total} entrega(s) · ${pendentes} pendente(s)</div>
+      </div>
+      <span class="badge">${pendentes} pendentes</span>
     </div>
     <div class="stats">
       <div class="stat-card pendente"><div class="num">${pendentes}</div><div class="label">Pendentes</div></div>
+      <div class="stat-card ok"><div class="num">${entregas.filter(e => e.confirma_entrega === true).length}</div><div class="label">Sucesso</div></div>
       <div class="stat-card falha"><div class="num">${falhas}</div><div class="label">Insucesso</div></div>
     </div>
   `;
@@ -277,14 +296,15 @@ function renderCarga() {
           <span class="nf-num">NF ${e.nf || '—'}${e.has_recent_contact_message ? '<span class="recent-badge">💬 Nova mensagem</span>' : ''}</span>
           <span class="status-badge ${status}">${statusLabel}</span>
         </div>
-        ${cargasUnicas.length > 1 ? `<div style="font-size:11px;color:#888;margin:2px 0 4px">Carga ${e.fc || '—'}</div>` : ''}
+        <div style="font-size:11px;color:#888;margin:2px 0 4px">Carga ${e.fc || '—'}</div>
         <div class="cliente">${e.cliente || '—'}</div>
         <div class="endereco">📍 ${endereco}</div>
+        <div class="highlight-row">
+          <span class="highlight-item">📦 <strong>${e.qtd_volumes || 1}</strong> vol</span>
+          <span class="highlight-item">💰 <strong>R$ ${parseFloat(e.valor_nf || 0).toFixed(2)}</strong></span>
+        </div>
         <div class="info-row">
-          <span>📦 ${e.qtd_volumes || 1} vol</span>
-          <span>💰 R$ ${parseFloat(e.valor_nf || 0).toFixed(2)}</span>
           <span>⚖️ ${parseFloat(e.peso_real || 0).toFixed(1)} kg</span>
-          ${e.cep ? `<span>📮 ${e.cep}</span>` : ''}
           ${e.telefone ? `<span>📞 ${e.telefone}</span>` : ''}
         </div>
         ${chatwootAvailable ? `<button class="whatsapp-btn" onclick="openChat(${e.id})">
@@ -323,8 +343,13 @@ window.confirmarEntrega = async function(id) {
   if (!result || result.error) { if (result?.error) showToast(result.error); return; }
   const e = entregas.find(x => x.id === id);
   if (e) { e.confirma_entrega = true; e.latitude = body.latitude; e.longitude = body.longitude; }
+  if (result.romaneio_finalizado) {
+    showToast('✅ Romaneio finalizado! Todas as entregas foram processadas.');
+    setTimeout(() => goHome(), 1500);
+    return;
+  }
   renderCarga();
-  showToast('Entrega confirmada com sucesso!');
+  showToast('✅ Entrega confirmada com sucesso!');
 };
 
 // ==================== INSUCESSO ====================
@@ -386,6 +411,11 @@ window.confirmarInsucesso = async function() {
   if (!result || result.error) { if (result?.error) showToast(result.error); return; }
   const e = entregas.find(x => x.id === id);
   if (e) { e.confirma_entrega = false; e.motivo_insucesso = motivo; e.latitude = body.latitude; e.longitude = body.longitude; }
+  if (result.romaneio_finalizado) {
+    showToast('✅ Romaneio finalizado! Todas as entregas foram processadas.');
+    setTimeout(() => goHome(), 1500);
+    return;
+  }
   renderCarga();
   showToast('Inconsistência registrada');
 };
